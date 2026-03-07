@@ -144,6 +144,7 @@ export default function App() {
               type="url"
               placeholder="https://example.com/product/..."
               value={url}
+              onFocus={(e) => e.target.select()}
               onChange={(e) => setUrl(e.target.value)}
               className="w-full pl-12 pr-32 py-4 bg-white border border-stone-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-lg"
               required
