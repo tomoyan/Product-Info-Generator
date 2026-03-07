@@ -1,0 +1,5 @@
+{
+  "name": "Product Info Extractor",
+  "description": "Extracts detailed product information from any URL and translates it into Japanese.",
+  "requestFramePermissions": []
+}
