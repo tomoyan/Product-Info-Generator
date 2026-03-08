@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { GoogleGenAI, Type } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen } from "lucide-react";
+import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette } from "lucide-react";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -20,6 +20,7 @@ interface ProductInfo {
     id?: string;
     material?: string;
     dimensions?: string;
+    color?: string;
   };
 }
 
@@ -30,7 +31,7 @@ export default function App() {
   const [productInfo, setProductInfo] = useState<ProductInfo | null>(null);
   const [discount, setDiscount] = useState<number>(0);
   const [manualUsdPrice, setManualUsdPrice] = useState<number>(0);
-  const [priceCopied, setPriceCopied] = useState(false);
+  const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
 
   const calculateRetailPrice = (usd: number, rate: number, discountPct: number = 0) => {
     const tax = 1.1; // 10%
@@ -47,13 +48,13 @@ export default function App() {
     return Math.floor(discountedPrice / 10) * 10;
   };
 
-  const copyPrice = async (price: number) => {
+  const copyToClipboard = async (key: string, value: string | number) => {
     try {
-      await navigator.clipboard.writeText(Math.round(price).toString());
-      setPriceCopied(true);
-      setTimeout(() => setPriceCopied(false), 2000);
+      await navigator.clipboard.writeText(value.toString());
+      setCopiedStates((prev) => ({ ...prev, [key]: true }));
+      setTimeout(() => setCopiedStates((prev) => ({ ...prev, [key]: false })), 2000);
     } catch (err) {
-      console.error("Failed to copy price!", err);
+      console.error("Failed to copy!", err);
     }
   };
 
@@ -70,7 +71,7 @@ export default function App() {
         model: "gemini-3-flash-preview",
         contents: `1. Search for the current USD to JPY market exchange rate.
         2. Extract product information from this URL: ${url}. 
-        Provide the English product name, Japanese product name, and details in Japanese including price (required, in US Dollars), ID, material, and dimensions in cm.
+        Provide the English product name, Japanese product name, and details in Japanese including price (required, in US Dollars), ID, material, dimensions in cm, and color.
         Also provide the numeric value of the USD price and the current USD/JPY exchange rate you found.`,
         config: {
           tools: [{ urlContext: {} }, { googleSearch: {} }],
@@ -89,6 +90,7 @@ export default function App() {
                   id: { type: Type.STRING, description: "Product ID or SKU if available" },
                   material: { type: Type.STRING, description: "Product material in Japanese" },
                   dimensions: { type: Type.STRING, description: "Dimensions in cm in Japanese" },
+                  color: { type: Type.STRING, description: "Product color in Japanese" },
                 },
                 required: ["price"],
               },
@@ -201,109 +203,157 @@ export default function App() {
                 </div>
 
                 <div className="p-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Price */}
-                    <div className="flex items-start gap-4">
-                      <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-xl bg-emerald-50 text-emerald-600">
-                        <DollarSign size={20} />
-                      </div>
-                      <div className="flex-1">
-                        <div className="mb-1 text-xs font-bold tracking-wider uppercase text-stone-400">Price (USD)</div>
-                        <div className="relative group/input">
-                          <span className="absolute left-0 text-xl font-semibold text-stone-900">$</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={manualUsdPrice}
-                            onFocus={(e) => e.target.select()}
-                            onChange={(e) => setManualUsdPrice(parseFloat(e.target.value) || 0)}
-                            className="w-full pl-4 text-xl font-semibold transition-all bg-transparent border-b border-transparent border-stone-200 focus:outline-none focus:border-emerald-500 hover:border-stone-300"
-                          />
-                        </div>
-                        <div className="mt-1 text-[10px] text-stone-400">Editable value</div>
-                      </div>
-                    </div>
-
-                    {/* Retail Price JPY */}
-                    <div className="flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shrink-0">
-                        <JapaneseYen size={20} />
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Retail Price (JPY)</div>
-                        <div className="flex items-baseline gap-2">
-                          <div className="text-xl font-bold text-emerald-600">¥{retailPriceJpy.toLocaleString()}</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                    {/* Left Column: Physical Details */}
+                    <div className="space-y-8">
+                      {/* Color */}
+                      {productInfo.details.color && (
+                        <div className="flex items-start gap-4">
                           <button
-                            onClick={() => copyPrice(retailPriceJpy)}
-                            className="p-1 text-stone-400 hover:text-emerald-600 transition-colors"
-                            title="Copy price"
+                            onClick={() => copyToClipboard("color", productInfo.details.color!)}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                              copiedStates["color"] ? "bg-emerald-600 text-white" : "bg-stone-50 text-stone-400 hover:bg-stone-100 hover:text-emerald-600"
+                            }`}
+                            title="Copy color"
                           >
-                            {priceCopied ? <Check size={14} /> : <Copy size={14} />}
+                            {copiedStates["color"] ? <Check size={20} /> : <Palette size={20} />}
                           </button>
-                          {discount > 0 && (
-                            <div className="text-xs font-medium text-stone-400 line-through">
-                              ¥{calculateRetailPrice(manualUsdPrice, productInfo!.exchangeRate, 0).toLocaleString()}
-                            </div>
-                          )}
+                          <div>
+                            <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Color</div>
+                            <div className="text-lg font-medium">{productInfo.details.color}</div>
+                          </div>
                         </div>
-                        <div className="text-[10px] text-stone-400 mt-1 mb-3">Rate: ¥{productInfo.exchangeRate} / USD</div>
-                        
-                        <div className="flex gap-2">
-                          {[0, 10, 20].map((val) => (
-                            <button
-                              key={val}
-                              onClick={() => setDiscount(val)}
-                              className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all border ${
-                                discount === val
-                                  ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
-                                  : "bg-white border-stone-200 text-stone-500 hover:border-emerald-500 hover:text-emerald-600"
-                              }`}
-                            >
-                              {val === 0 ? "Normal" : `${val}% OFF`}
-                            </button>
-                          ))}
+                      )}
+
+                      {/* ID */}
+                      {productInfo.details.id && (
+                        <div className="flex items-start gap-4">
+                          <button
+                            onClick={() => copyToClipboard("id", productInfo.details.id!)}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                              copiedStates["id"] ? "bg-emerald-600 text-white" : "bg-stone-50 text-stone-400 hover:bg-stone-100 hover:text-emerald-600"
+                            }`}
+                            title="Copy product ID"
+                          >
+                            {copiedStates["id"] ? <Check size={20} /> : <Tag size={20} />}
+                          </button>
+                          <div>
+                            <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Product ID</div>
+                            <div className="text-xl font-semibold">{productInfo.details.id}</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Material */}
+                      {productInfo.details.material && (
+                        <div className="flex items-start gap-4">
+                          <button
+                            onClick={() => copyToClipboard("material", productInfo.details.material!)}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                              copiedStates["material"] ? "bg-emerald-600 text-white" : "bg-stone-50 text-stone-400 hover:bg-stone-100 hover:text-emerald-600"
+                            }`}
+                            title="Copy material"
+                          >
+                            {copiedStates["material"] ? <Check size={20} /> : <Layers size={20} />}
+                          </button>
+                          <div>
+                            <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Material</div>
+                            <div className="text-lg font-medium">{productInfo.details.material}</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Dimensions */}
+                      {productInfo.details.dimensions && (
+                        <div className="flex items-start gap-4">
+                          <button
+                            onClick={() => copyToClipboard("dimensions", productInfo.details.dimensions!)}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                              copiedStates["dimensions"] ? "bg-emerald-600 text-white" : "bg-stone-50 text-stone-400 hover:bg-stone-100 hover:text-emerald-600"
+                            }`}
+                            title="Copy dimensions"
+                          >
+                            {copiedStates["dimensions"] ? <Check size={20} /> : <Ruler size={20} />}
+                          </button>
+                          <div>
+                            <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Dimensions</div>
+                            <div className="text-lg font-medium">{productInfo.details.dimensions}</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right Column: Pricing Details */}
+                    <div className="space-y-8">
+                      {/* Price USD */}
+                      <div className="flex items-start gap-4">
+                        <button
+                          onClick={() => copyToClipboard("usd", manualUsdPrice)}
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                            copiedStates["usd"] ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                          }`}
+                          title="Copy USD price"
+                        >
+                          {copiedStates["usd"] ? <Check size={20} /> : <DollarSign size={20} />}
+                        </button>
+                        <div className="flex-1">
+                          <div className="mb-1 text-xs font-bold tracking-wider uppercase text-stone-400">Price (USD)</div>
+                          <div className="relative group/input">
+                            <span className="absolute left-0 text-xl font-semibold text-stone-900">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={manualUsdPrice}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => setManualUsdPrice(parseFloat(e.target.value) || 0)}
+                              className="w-full pl-4 text-xl font-semibold transition-all bg-transparent border-b border-transparent border-stone-200 focus:outline-none focus:border-emerald-500 hover:border-stone-300"
+                            />
+                          </div>
+                          <div className="mt-1 text-[10px] text-stone-400">Editable value</div>
+                        </div>
+                      </div>
+
+                      {/* Retail Price JPY */}
+                      <div className="flex items-start gap-4">
+                        <button
+                          onClick={() => copyToClipboard("jpy", retailPriceJpy)}
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                            copiedStates["jpy"] ? "bg-emerald-700 text-white" : "bg-emerald-600 text-white hover:bg-emerald-700"
+                          }`}
+                          title="Copy JPY price"
+                        >
+                          {copiedStates["jpy"] ? <Check size={20} /> : <JapaneseYen size={20} />}
+                        </button>
+                        <div className="flex-1">
+                          <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Retail Price (JPY)</div>
+                          <div className="flex items-baseline gap-2">
+                            <div className="text-xl font-bold text-emerald-600">¥{retailPriceJpy.toLocaleString()}</div>
+                            {discount > 0 && (
+                              <div className="text-xs font-medium text-stone-400 line-through">
+                                ¥{calculateRetailPrice(manualUsdPrice, productInfo!.exchangeRate, 0).toLocaleString()}
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-stone-400 mt-1 mb-3">Rate: ¥{productInfo.exchangeRate} / USD</div>
+                          
+                          <div className="flex gap-2">
+                            {[0, 10, 20].map((val) => (
+                              <button
+                                key={val}
+                                onClick={() => setDiscount(val)}
+                                className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all border ${
+                                  discount === val
+                                    ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
+                                    : "bg-white border-stone-200 text-stone-500 hover:border-emerald-500 hover:text-emerald-600"
+                                }`}
+                              >
+                                {val === 0 ? "Normal" : `${val}% OFF`}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
-
-                    {/* ID */}
-                    {productInfo.details.id && (
-                      <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-stone-50 flex items-center justify-center text-stone-400 shrink-0">
-                          <Tag size={20} />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Product ID</div>
-                          <div className="text-xl font-semibold">{productInfo.details.id}</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Material */}
-                    {productInfo.details.material && (
-                      <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-stone-50 flex items-center justify-center text-stone-400 shrink-0">
-                          <Layers size={20} />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Material</div>
-                          <div className="text-lg font-medium">{productInfo.details.material}</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Dimensions */}
-                    {productInfo.details.dimensions && (
-                      <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-stone-50 flex items-center justify-center text-stone-400 shrink-0">
-                          <Ruler size={20} />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Dimensions</div>
-                          <div className="text-lg font-medium">{productInfo.details.dimensions}</div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
