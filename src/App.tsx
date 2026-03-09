@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette } from "lucide-react";
 
@@ -27,6 +27,8 @@ interface ProductInfo {
 export default function App() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [productInfo, setProductInfo] = useState<ProductInfo | null>(null);
   const [discount, setDiscount] = useState<number>(0);
@@ -63,17 +65,38 @@ export default function App() {
     if (!url) return;
 
     setLoading(true);
+    setProgress(0);
+    setProgressMessage("Initializing AI...");
     setError(null);
     setProductInfo(null);
+
+    // Simulate progress
+    const progressInterval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev < 30) {
+          setProgressMessage("Searching exchange rates...");
+          return prev + Math.random() * 5;
+        }
+        if (prev < 60) {
+          setProgressMessage("Analyzing product page...");
+          return prev + Math.random() * 3;
+        }
+        if (prev < 90) {
+          setProgressMessage("Generating Japanese translation...");
+          return prev + Math.random() * 2;
+        }
+        return prev;
+      });
+    }, 400);
 
     try {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `1. Search for the current USD to JPY market exchange rate.
-        2. Extract product information from this URL: ${url}. 
-        Provide the English product name, Japanese product name, and details in Japanese including price (required, in US Dollars), ID, material, dimensions in cm, and color.
-        Also provide the numeric value of the USD price and the current USD/JPY exchange rate you found.`,
+        contents: `Extract product info from ${url} and find current USD/JPY rate.
+        Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color.
+        Include numeric USD price and exchange rate.`,
         config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           tools: [{ urlContext: {} }, { googleSearch: {} }],
           responseMimeType: "application/json",
           responseSchema: {
@@ -102,6 +125,8 @@ export default function App() {
 
       const text = response.text;
       if (text) {
+        setProgress(100);
+        setProgressMessage("Extraction complete!");
         const data = JSON.parse(text);
         setProductInfo(data);
         setManualUsdPrice(data.usdPriceValue);
@@ -112,7 +137,8 @@ export default function App() {
       console.error(err);
       setError(err.message || "An error occurred while extracting information.");
     } finally {
-      setLoading(false);
+      clearInterval(progressInterval);
+      setTimeout(() => setLoading(false), 500);
     }
   };
 
@@ -154,11 +180,45 @@ export default function App() {
             <button
               type="submit"
               disabled={loading || !url}
-              className="absolute right-2 top-2 bottom-2 px-6 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+              className="absolute right-2 top-2 bottom-2 px-6 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 overflow-hidden min-w-[120px] justify-center"
             >
-              {loading ? <Loader2 className="animate-spin" size={18} /> : "Extract"}
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={18} />
+                  <span>{Math.round(progress)}%</span>
+                </div>
+              ) : (
+                "Extract"
+              )}
             </button>
           </form>
+
+          {/* Progress Bar */}
+          <AnimatePresence>
+            {loading && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-4 overflow-hidden"
+              >
+                <div className="bg-white border border-stone-200 rounded-xl p-4 shadow-sm">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">{progressMessage}</span>
+                    <span className="text-xs font-bold text-emerald-600">{Math.round(progress)}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-emerald-600"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progress}%` }}
+                      transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </section>
 
         {/* Results Section */}
@@ -328,7 +388,7 @@ export default function App() {
                           <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Retail Price (JPY)</div>
                           <div className="flex items-baseline gap-2">
                             <div className="text-xl font-bold text-emerald-600">¥{retailPriceJpy.toLocaleString()}</div>
-                            {discount > 0 && (
+                            {discount !== 0 && (
                               <div className="text-xs font-medium text-stone-400 line-through">
                                 ¥{calculateRetailPrice(manualUsdPrice, productInfo!.exchangeRate, 0).toLocaleString()}
                               </div>
@@ -336,18 +396,24 @@ export default function App() {
                           </div>
                           <div className="text-[10px] text-stone-400 mt-1 mb-3">Rate: ¥{productInfo.exchangeRate} / USD</div>
                           
-                          <div className="flex gap-2">
-                            {[0, 10, 20].map((val) => (
+                          <div className="flex flex-wrap gap-1">
+                            {[
+                              { label: "20% OFF", val: 20, color: "bg-indigo-600", border: "border-indigo-600", hover: "hover:text-indigo-600 hover:border-indigo-600" },
+                              { label: "10% OFF", val: 10, color: "bg-blue-600", border: "border-blue-600", hover: "hover:text-blue-600 hover:border-blue-600" },
+                              { label: "Normal", val: 0, color: "bg-emerald-600", border: "border-emerald-600", hover: "hover:text-emerald-600 hover:border-emerald-600" },
+                              { label: "10% UP", val: -10, color: "bg-orange-600", border: "border-orange-600", hover: "hover:text-orange-600 hover:border-orange-600" },
+                              { label: "20% UP", val: -20, color: "bg-rose-600", border: "border-rose-600", hover: "hover:text-rose-600 hover:border-rose-600" },
+                            ].map((btn) => (
                               <button
-                                key={val}
-                                onClick={() => setDiscount(val)}
-                                className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all border ${
-                                  discount === val
-                                    ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
-                                    : "bg-white border-stone-200 text-stone-500 hover:border-emerald-500 hover:text-emerald-600"
+                                key={btn.label}
+                                onClick={() => setDiscount(btn.val)}
+                                className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all border whitespace-nowrap ${
+                                  discount === btn.val
+                                    ? `${btn.color} ${btn.border} text-white shadow-sm`
+                                    : `bg-white border-stone-200 text-stone-500 ${btn.hover}`
                                 }`}
                               >
-                                {val === 0 ? "Normal" : `${val}% OFF`}
+                                {btn.label}
                               </button>
                             ))}
                           </div>
