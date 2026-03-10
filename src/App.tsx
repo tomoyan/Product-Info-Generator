@@ -27,6 +27,7 @@ interface ProductInfo {
 
 export default function App() {
   const [url, setUrl] = useState("");
+  const [quickUsd, setQuickUsd] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
@@ -58,6 +59,67 @@ export default function App() {
       setTimeout(() => setCopiedStates((prev) => ({ ...prev, [key]: false })), 2000);
     } catch (err) {
       console.error("Failed to copy!", err);
+    }
+  };
+
+  const quickCheck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const usdValue = parseFloat(quickUsd);
+    if (isNaN(usdValue) || usdValue <= 0) return;
+
+    setLoading(true);
+    setProgress(0);
+    setProgressMessage("Fetching exchange rate...");
+    setError(null);
+    setProductInfo(null);
+
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: "Find the current USD to JPY market exchange rate. Return only the numeric value.",
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate" },
+            },
+            required: ["exchangeRate"],
+          },
+        },
+      });
+
+      const text = response.text;
+      if (text) {
+        setProgress(100);
+        setProgressMessage("Check complete!");
+        const data = JSON.parse(text);
+        
+        setProductInfo({
+          englishName: "Quick Price Check",
+          japaneseName: "クイック価格チェック",
+          usdPriceValue: usdValue,
+          exchangeRate: data.exchangeRate,
+          details: {
+            price: `$${usdValue.toFixed(2)}`,
+            id: "-",
+            material: "-",
+            dimensions: "-",
+            color: "-",
+            description: "クイックチェックの結果です。詳細情報は含まれません。"
+          }
+        });
+        setManualUsdPrice(usdValue);
+      } else {
+        throw new Error("Could not fetch exchange rate.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "An error occurred during quick check.");
+    } finally {
+      setTimeout(() => setLoading(false), 500);
     }
   };
 
@@ -166,34 +228,62 @@ export default function App() {
       <main className="max-w-4xl mx-auto px-6 pt-6 pb-12">
         {/* Input Section */}
         <section className="mb-8">
-          <form onSubmit={extractInfo} className="relative group">
-            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400 group-focus-within:text-emerald-600 transition-colors">
-              <Search size={20} />
-            </div>
-            <input
-              type="url"
-              placeholder="https://example.com/product/..."
-              value={url}
-              onFocus={(e) => e.target.select()}
-              onChange={(e) => setUrl(e.target.value)}
-              className="w-full pl-12 pr-32 py-4 bg-white border border-stone-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-lg"
-              required
-            />
-            <button
-              type="submit"
-              disabled={loading || !url}
-              className="absolute right-2 top-2 bottom-2 px-6 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 overflow-hidden min-w-[120px] justify-center"
-            >
-              {loading ? (
-                <div className="flex items-center gap-2">
+          <div className="flex flex-col md:flex-row gap-3">
+            <form onSubmit={extractInfo} className="relative group flex-1">
+              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400 group-focus-within:text-emerald-600 transition-colors">
+                <Search size={20} />
+              </div>
+              <input
+                type="url"
+                placeholder="Paste product URL..."
+                value={url}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setUrl(e.target.value)}
+                className="w-full pl-12 pr-32 py-4 bg-white border border-stone-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-lg"
+                required
+              />
+              <button
+                type="submit"
+                disabled={loading || !url}
+                className="absolute right-2 top-2 bottom-2 px-6 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 overflow-hidden min-w-[110px] justify-center"
+              >
+                {loading && url ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="animate-spin" size={18} />
+                    <span>{Math.round(progress)}%</span>
+                  </div>
+                ) : (
+                  "Extract"
+                )}
+              </button>
+            </form>
+
+            <form onSubmit={quickCheck} className="relative group md:w-48">
+              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400 group-focus-within:text-emerald-600 transition-colors">
+                <DollarSign size={18} />
+              </div>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Price"
+                value={quickUsd}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setQuickUsd(e.target.value)}
+                className="w-full pl-10 pr-20 py-4 bg-white border border-stone-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+              />
+              <button
+                type="submit"
+                disabled={loading || !quickUsd}
+                className="absolute right-2 top-2 bottom-2 px-4 bg-stone-800 text-white rounded-xl font-medium hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center min-w-[70px]"
+              >
+                {loading && quickUsd ? (
                   <Loader2 className="animate-spin" size={18} />
-                  <span>{Math.round(progress)}%</span>
-                </div>
-              ) : (
-                "Extract"
-              )}
-            </button>
-          </form>
+                ) : (
+                  "Check"
+                )}
+              </button>
+            </form>
+          </div>
 
           {/* Progress Bar */}
           <AnimatePresence>
