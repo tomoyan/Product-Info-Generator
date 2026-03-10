@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette } from "lucide-react";
+import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText } from "lucide-react";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -21,6 +21,7 @@ interface ProductInfo {
     material?: string;
     dimensions?: string;
     color?: string;
+    description?: string;
   };
 }
 
@@ -93,7 +94,7 @@ export default function App() {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Extract product info from ${url} and find current USD/JPY rate.
-        Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color.
+        Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color, and a very short summary description in Japanese (1 sentence).
         Include numeric USD price and exchange rate.`,
         config: {
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -114,6 +115,7 @@ export default function App() {
                   material: { type: Type.STRING, description: "Product material in Japanese" },
                   dimensions: { type: Type.STRING, description: "Dimensions in cm in Japanese" },
                   color: { type: Type.STRING, description: "Product color in Japanese" },
+                  description: { type: Type.STRING, description: "Short 1-sentence summary of the product in Japanese" },
                 },
                 required: ["price"],
               },
@@ -396,26 +398,47 @@ export default function App() {
                           </div>
                           <div className="text-[10px] text-stone-400 mt-1 mb-3">Rate: ¥{productInfo.exchangeRate} / USD</div>
                           
-                          <div className="flex flex-wrap gap-1">
-                            {[
-                              { label: "20% OFF", val: 20, color: "bg-indigo-600", border: "border-indigo-600", hover: "hover:text-indigo-600 hover:border-indigo-600" },
-                              { label: "10% OFF", val: 10, color: "bg-blue-600", border: "border-blue-600", hover: "hover:text-blue-600 hover:border-blue-600" },
-                              { label: "Normal", val: 0, color: "bg-emerald-600", border: "border-emerald-600", hover: "hover:text-emerald-600 hover:border-emerald-600" },
-                              { label: "10% UP", val: -10, color: "bg-orange-600", border: "border-orange-600", hover: "hover:text-orange-600 hover:border-orange-600" },
-                              { label: "20% UP", val: -20, color: "bg-rose-600", border: "border-rose-600", hover: "hover:text-rose-600 hover:border-rose-600" },
-                            ].map((btn) => (
-                              <button
-                                key={btn.label}
-                                onClick={() => setDiscount(btn.val)}
-                                className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all border whitespace-nowrap ${
-                                  discount === btn.val
-                                    ? `${btn.color} ${btn.border} text-white shadow-sm`
-                                    : `bg-white border-stone-200 text-stone-500 ${btn.hover}`
-                                }`}
-                              >
-                                {btn.label}
-                              </button>
-                            ))}
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap gap-1">
+                              {[
+                                { label: "20% OFF", val: 20, color: "bg-indigo-600", border: "border-indigo-600", hover: "hover:text-indigo-600 hover:border-indigo-600" },
+                                { label: "10% OFF", val: 10, color: "bg-blue-600", border: "border-blue-600", hover: "hover:text-blue-600 hover:border-blue-600" },
+                                { label: "Normal", val: 0, color: "bg-emerald-600", border: "border-emerald-600", hover: "hover:text-emerald-600 hover:border-emerald-600" },
+                                { label: "10% UP", val: -10, color: "bg-orange-600", border: "border-orange-600", hover: "hover:text-orange-600 hover:border-orange-600" },
+                                { label: "20% UP", val: -20, color: "bg-rose-600", border: "border-rose-600", hover: "hover:text-rose-600 hover:border-rose-600" },
+                              ].map((btn) => (
+                                <button
+                                  key={btn.label}
+                                  onClick={() => setDiscount(btn.val)}
+                                  className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all border whitespace-nowrap ${
+                                    discount === btn.val
+                                      ? `${btn.color} ${btn.border} text-white shadow-sm`
+                                      : `bg-white border-stone-200 text-stone-500 ${btn.hover}`
+                                  }`}
+                                >
+                                  {btn.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            {productInfo.details.description && (
+                              <div className="relative group/desc">
+                                <div className="p-3 bg-stone-50 rounded-xl border border-stone-100 pr-10">
+                                  <p className="text-[11px] text-stone-600 leading-relaxed italic">
+                                    {productInfo.details.description}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => copyToClipboard("description", productInfo.details.description!)}
+                                  className={`absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
+                                    copiedStates["description"] ? "bg-emerald-600 text-white" : "bg-white text-stone-400 border border-stone-200 hover:text-emerald-600 hover:border-emerald-600 shadow-sm"
+                                  }`}
+                                  title="Copy summary"
+                                >
+                                  {copiedStates["description"] ? <Check size={14} /> : <FileText size={14} />}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
