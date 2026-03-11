@@ -26,8 +26,7 @@ interface ProductInfo {
 }
 
 export default function App() {
-  const [url, setUrl] = useState("");
-  const [quickUsd, setQuickUsd] = useState("");
+  const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
@@ -62,147 +61,143 @@ export default function App() {
     }
   };
 
-  const quickCheck = async (e: React.FormEvent) => {
+  const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
-    const usdValue = parseFloat(quickUsd);
-    if (isNaN(usdValue) || usdValue <= 0) return;
+    if (!inputValue.trim()) return;
+
+    const trimmedInput = inputValue.trim();
+    const usdValue = parseFloat(trimmedInput);
+    // If it's a pure number (optional decimal), treat as price. Otherwise, treat as URL.
+    const isPrice = !isNaN(usdValue) && /^\d+(\.\d+)?$/.test(trimmedInput);
 
     setLoading(true);
     setProgress(0);
-    setProgressMessage("Fetching exchange rate...");
     setError(null);
     setProductInfo(null);
 
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: "Find the current USD to JPY market exchange rate. Return only the numeric value.",
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate" },
-            },
-            required: ["exchangeRate"],
-          },
-        },
-      });
-
-      const text = response.text;
-      if (text) {
-        setProgress(100);
-        setProgressMessage("Check complete!");
-        const data = JSON.parse(text);
-        
-        setProductInfo({
-          englishName: "Quick Price Check",
-          japaneseName: "クイック価格チェック",
-          usdPriceValue: usdValue,
-          exchangeRate: data.exchangeRate,
-          details: {
-            price: `$${usdValue.toFixed(2)}`,
-            id: "-",
-            material: "-",
-            dimensions: "-",
-            color: "-",
-            description: "クイックチェックの結果です。詳細情報は含まれません。"
-          }
-        });
-        setManualUsdPrice(usdValue);
-      } else {
-        throw new Error("Could not fetch exchange rate.");
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "An error occurred during quick check.");
-    } finally {
-      setTimeout(() => setLoading(false), 500);
-    }
-  };
-
-  const extractInfo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!url) return;
-
-    setLoading(true);
-    setProgress(0);
-    setProgressMessage("Initializing AI...");
-    setError(null);
-    setProductInfo(null);
-
-    // Simulate progress
-    const progressInterval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev < 30) {
-          setProgressMessage("Searching exchange rates...");
-          return prev + Math.random() * 5;
-        }
-        if (prev < 60) {
-          setProgressMessage("Analyzing product page...");
-          return prev + Math.random() * 3;
-        }
-        if (prev < 90) {
-          setProgressMessage("Generating Japanese translation...");
-          return prev + Math.random() * 2;
-        }
-        return prev;
-      });
-    }, 400);
-
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Extract product info from ${url} and find current USD/JPY rate.
-        Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color, and a very short summary description in Japanese (1 sentence).
-        Include numeric USD price and exchange rate.`,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          tools: [{ urlContext: {} }, { googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              englishName: { type: Type.STRING, description: "Product name in English" },
-              japaneseName: { type: Type.STRING, description: "Product name in Japanese" },
-              usdPriceValue: { type: Type.NUMBER, description: "Numeric value of the USD price (e.g., 12.00)" },
-              exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate (e.g., 150.5)" },
-              details: {
-                type: Type.OBJECT,
-                properties: {
-                  price: { type: Type.STRING, description: "Price in US Dollars (e.g., $12.00)" },
-                  id: { type: Type.STRING, description: "Product ID or SKU if available" },
-                  material: { type: Type.STRING, description: "Product material in Japanese" },
-                  dimensions: { type: Type.STRING, description: "Dimensions in cm in Japanese" },
-                  color: { type: Type.STRING, description: "Product color in Japanese" },
-                  description: { type: Type.STRING, description: "Short 1-sentence summary of the product in Japanese" },
-                },
-                required: ["price"],
+    if (isPrice) {
+      setProgressMessage("Fetching exchange rate...");
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: "Find the current USD to JPY market exchange rate. Return only the numeric value.",
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            tools: [{ googleSearch: {} }],
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate" },
               },
+              required: ["exchangeRate"],
             },
-            required: ["englishName", "japaneseName", "details", "usdPriceValue", "exchangeRate"],
           },
-        },
-      });
+        });
 
-      const text = response.text;
-      if (text) {
-        setProgress(100);
-        setProgressMessage("Extraction complete!");
-        const data = JSON.parse(text);
-        setProductInfo(data);
-        setManualUsdPrice(data.usdPriceValue);
-      } else {
-        throw new Error("No information could be extracted from this URL.");
+        const text = response.text;
+        if (text) {
+          setProgress(100);
+          setProgressMessage("Check complete!");
+          const data = JSON.parse(text);
+          
+          setProductInfo({
+            englishName: "Quick Price Check",
+            japaneseName: "クイック価格チェック",
+            usdPriceValue: usdValue,
+            exchangeRate: data.exchangeRate,
+            details: {
+              price: `$${usdValue.toFixed(2)}`,
+              id: "-",
+              material: "-",
+              dimensions: "-",
+              color: "-",
+              description: "クイックチェックの結果です。詳細情報は含まれません。"
+            }
+          });
+          setManualUsdPrice(usdValue);
+        } else {
+          throw new Error("Could not fetch exchange rate.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || "An error occurred during quick check.");
+      } finally {
+        setTimeout(() => setLoading(false), 500);
       }
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "An error occurred while extracting information.");
-    } finally {
-      clearInterval(progressInterval);
-      setTimeout(() => setLoading(false), 500);
+    } else {
+      // Extract Info Logic
+      setProgressMessage("Initializing AI...");
+      const progressInterval = setInterval(() => {
+        setProgress((prev) => {
+          if (prev < 30) {
+            setProgressMessage("Searching exchange rates...");
+            return prev + Math.random() * 5;
+          }
+          if (prev < 60) {
+            setProgressMessage("Analyzing product page...");
+            return prev + Math.random() * 3;
+          }
+          if (prev < 90) {
+            setProgressMessage("Generating Japanese translation...");
+            return prev + Math.random() * 2;
+          }
+          return prev;
+        });
+      }, 400);
+
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Extract product info from ${inputValue} and find current USD/JPY rate.
+          Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color, and a very short summary description in Japanese (1 sentence).
+          Include numeric USD price and exchange rate.`,
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            tools: [{ urlContext: {} }, { googleSearch: {} }],
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                englishName: { type: Type.STRING, description: "Product name in English" },
+                japaneseName: { type: Type.STRING, description: "Product name in Japanese" },
+                usdPriceValue: { type: Type.NUMBER, description: "Numeric value of the USD price (e.g., 12.00)" },
+                exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate (e.g., 150.5)" },
+                details: {
+                  type: Type.OBJECT,
+                  properties: {
+                    price: { type: Type.STRING, description: "Price in US Dollars (e.g., $12.00)" },
+                    id: { type: Type.STRING, description: "Product ID or SKU if available" },
+                    material: { type: Type.STRING, description: "Product material in Japanese" },
+                    dimensions: { type: Type.STRING, description: "Dimensions in cm in Japanese" },
+                    color: { type: Type.STRING, description: "Product color in Japanese" },
+                    description: { type: Type.STRING, description: "Short 1-sentence summary of the product in Japanese" },
+                  },
+                  required: ["price"],
+                },
+              },
+              required: ["englishName", "japaneseName", "details", "usdPriceValue", "exchangeRate"],
+            },
+          },
+        });
+
+        const text = response.text;
+        if (text) {
+          setProgress(100);
+          setProgressMessage("Extraction complete!");
+          const data = JSON.parse(text);
+          setProductInfo(data);
+          setManualUsdPrice(data.usdPriceValue);
+        } else {
+          throw new Error("No information could be extracted from this URL.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || "An error occurred while extracting information.");
+      } finally {
+        clearInterval(progressInterval);
+        setTimeout(() => setLoading(false), 500);
+      }
     }
   };
 
@@ -228,62 +223,34 @@ export default function App() {
       <main className="max-w-4xl mx-auto px-6 pt-6 pb-12">
         {/* Input Section */}
         <section className="mb-8">
-          <div className="flex flex-col md:flex-row gap-3">
-            <form onSubmit={extractInfo} className="relative group flex-1">
-              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400 group-focus-within:text-emerald-600 transition-colors">
-                <Search size={20} />
-              </div>
-              <input
-                type="url"
-                placeholder="Paste product URL..."
-                value={url}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => setUrl(e.target.value)}
-                className="w-full pl-12 pr-32 py-4 bg-white border border-stone-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-lg"
-                required
-              />
-              <button
-                type="submit"
-                disabled={loading || !url}
-                className="absolute right-2 top-2 bottom-2 px-6 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 overflow-hidden min-w-[110px] justify-center"
-              >
-                {loading && url ? (
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="animate-spin" size={18} />
-                    <span>{Math.round(progress)}%</span>
-                  </div>
-                ) : (
-                  "Extract"
-                )}
-              </button>
-            </form>
-
-            <form onSubmit={quickCheck} className="relative group md:w-48">
-              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400 group-focus-within:text-emerald-600 transition-colors">
-                <DollarSign size={18} />
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Price"
-                value={quickUsd}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => setQuickUsd(e.target.value)}
-                className="w-full pl-10 pr-20 py-4 bg-white border border-stone-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
-              />
-              <button
-                type="submit"
-                disabled={loading || !quickUsd}
-                className="absolute right-2 top-2 bottom-2 px-4 bg-stone-800 text-white rounded-xl font-medium hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center min-w-[70px]"
-              >
-                {loading && quickUsd ? (
+          <form onSubmit={handleAction} className="relative group">
+            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400 group-focus-within:text-emerald-600 transition-colors">
+              <Search size={20} />
+            </div>
+            <input
+              type="text"
+              placeholder="Paste product URL or enter USD Price..."
+              value={inputValue}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setInputValue(e.target.value)}
+              className="w-full pl-12 pr-32 py-4 bg-white border border-stone-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-lg"
+              required
+            />
+            <button
+              type="submit"
+              disabled={loading || !inputValue.trim()}
+              className="absolute right-2 top-2 bottom-2 px-6 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 overflow-hidden min-w-[110px] justify-center"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
                   <Loader2 className="animate-spin" size={18} />
-                ) : (
-                  "Check"
-                )}
-              </button>
-            </form>
-          </div>
+                  <span>{Math.round(progress)}%</span>
+                </div>
+              ) : (
+                "Analyze"
+              )}
+            </button>
+          </form>
 
           {/* Progress Bar */}
           <AnimatePresence>
@@ -342,14 +309,16 @@ export default function App() {
                       <h4 className="text-xl font-medium text-stone-600 leading-tight">{productInfo.japaneseName}</h4>
                     </div>
                     <div className="flex items-center gap-2">
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
-                      >
-                        <ExternalLink size={20} />
-                      </a>
+                      {inputValue.startsWith("http") && (
+                        <a
+                          href={inputValue}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                        >
+                          <ExternalLink size={20} />
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -433,6 +402,27 @@ export default function App() {
                           </div>
                         </div>
                       )}
+
+                      {/* Summary */}
+                      {productInfo.details.description && (
+                        <div className="flex items-start gap-4">
+                          <button
+                            onClick={() => copyToClipboard("description", productInfo.details.description!)}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                              copiedStates["description"] ? "bg-emerald-600 text-white" : "bg-stone-50 text-stone-400 hover:bg-stone-100 hover:text-emerald-600"
+                            }`}
+                            title="Copy summary"
+                          >
+                            {copiedStates["description"] ? <Check size={20} /> : <FileText size={20} />}
+                          </button>
+                          <div>
+                            <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Summary</div>
+                            <div className="text-[11px] text-stone-600 leading-relaxed italic pr-4">
+                              {productInfo.details.description}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Right Column: Pricing Details */}
@@ -510,25 +500,6 @@ export default function App() {
                                 </button>
                               ))}
                             </div>
-
-                            {productInfo.details.description && (
-                              <div className="relative group/desc">
-                                <div className="p-3 bg-stone-50 rounded-xl border border-stone-100 pr-10">
-                                  <p className="text-[11px] text-stone-600 leading-relaxed italic">
-                                    {productInfo.details.description}
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={() => copyToClipboard("description", productInfo.details.description!)}
-                                  className={`absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
-                                    copiedStates["description"] ? "bg-emerald-600 text-white" : "bg-white text-stone-400 border border-stone-200 hover:text-emerald-600 hover:border-emerald-600 shadow-sm"
-                                  }`}
-                                  title="Copy summary"
-                                >
-                                  {copiedStates["description"] ? <Check size={14} /> : <FileText size={14} />}
-                                </button>
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -543,19 +514,6 @@ export default function App() {
                   Information extracted using Gemini 3 Flash. Accuracy may vary based on website structure.
                 </p>
               </div>
-            </motion.div>
-          )}
-
-          {!productInfo && !loading && !error && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-center justify-center py-20 text-stone-300"
-            >
-              <div className="w-20 h-20 border-2 border-dashed border-stone-200 rounded-full flex items-center justify-center mb-4">
-                <Search size={32} />
-              </div>
-              <p className="text-sm font-medium">Ready to analyze your product URL</p>
             </motion.div>
           )}
         </AnimatePresence>
