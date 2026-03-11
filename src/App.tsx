@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText } from "lucide-react";
@@ -36,38 +36,11 @@ export default function App() {
   const [manualUsdPrice, setManualUsdPrice] = useState<number>(0);
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
 
-  const calculateRetailPrice = (usd: number, rate: number, discountPct: number = 0) => {
-    const tax = 1.1; // 10%
-    const spread = 10;
-    const shipping = 7000;
-    const markup = 1.1; // 10%
-    const fee = 1.05; // 5%
-    
-    // Formula: (((USD×tax)×(rate+spread))+7000)×(markup)×fee
-    const basePrice = (((usd * tax) * (rate + spread)) + shipping) * markup * fee;
-    const discountedPrice = basePrice * (1 - discountPct / 100);
-    
-    // Round down the last digit (e.g., 1234 -> 1230)
-    return Math.floor(discountedPrice / 10) * 10;
-  };
+  const startAnalysis = useCallback(async (value: string) => {
+    const trimmedInput = value.trim();
+    if (!trimmedInput) return;
 
-  const copyToClipboard = async (key: string, value: string | number) => {
-    try {
-      await navigator.clipboard.writeText(value.toString());
-      setCopiedStates((prev) => ({ ...prev, [key]: true }));
-      setTimeout(() => setCopiedStates((prev) => ({ ...prev, [key]: false })), 2000);
-    } catch (err) {
-      console.error("Failed to copy!", err);
-    }
-  };
-
-  const handleAction = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputValue.trim()) return;
-
-    const trimmedInput = inputValue.trim();
     const usdValue = parseFloat(trimmedInput);
-    // If it's a pure number (optional decimal), treat as price. Otherwise, treat as URL.
     const isPrice = !isNaN(usdValue) && /^\d+(\.\d+)?$/.test(trimmedInput);
 
     setLoading(true);
@@ -78,7 +51,6 @@ export default function App() {
     if (isPrice) {
       setProgressMessage("Fetching exchange rate...");
       try {
-        // Add timeout for exchange rate fetch
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error("TIMEOUT")), 45000)
         );
@@ -136,7 +108,6 @@ export default function App() {
         setTimeout(() => setLoading(false), 500);
       }
     } else {
-      // Extract Info Logic
       setProgressMessage("Initializing AI...");
       const progressInterval = setInterval(() => {
         setProgress((prev) => {
@@ -157,14 +128,13 @@ export default function App() {
       }, 400);
 
       try {
-        // Add timeout for extraction
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error("TIMEOUT")), 45000)
         );
 
         const aiPromise = ai.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: `Extract product info from ${inputValue} and find current USD/JPY rate.
+          contents: `Extract product info from ${trimmedInput} and find current USD/JPY rate.
           Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color, and a very short summary description in Japanese (1 sentence).
           Include numeric USD price and exchange rate.`,
           config: {
@@ -219,6 +189,52 @@ export default function App() {
         setTimeout(() => setLoading(false), 500);
       }
     }
+  }, [discount]); // Added discount to dependencies if it impacts startAnalysis, though it mostly impacts retailPriceJpy
+
+  useEffect(() => {
+    const retryValue = localStorage.getItem("retry_value");
+    if (retryValue) {
+      localStorage.removeItem("retry_value");
+      setInputValue(retryValue);
+      startAnalysis(retryValue);
+    }
+  }, [startAnalysis]);
+
+  const calculateRetailPrice = (usd: number, rate: number, discountPct: number = 0) => {
+    const tax = 1.1; // 10%
+    const spread = 10;
+    const shipping = 7000;
+    const markup = 1.1; // 10%
+    const fee = 1.05; // 5%
+    
+    // Formula: (((USD×tax)×(rate+spread))+7000)×(markup)×fee
+    const basePrice = (((usd * tax) * (rate + spread)) + shipping) * markup * fee;
+    const discountedPrice = basePrice * (1 - discountPct / 100);
+    
+    // Round down the last digit (e.g., 1234 -> 1230)
+    return Math.floor(discountedPrice / 10) * 10;
+  };
+
+  const copyToClipboard = async (key: string, value: string | number) => {
+    try {
+      await navigator.clipboard.writeText(value.toString());
+      setCopiedStates((prev) => ({ ...prev, [key]: true }));
+      setTimeout(() => setCopiedStates((prev) => ({ ...prev, [key]: false })), 2000);
+    } catch (err) {
+      console.error("Failed to copy!", err);
+    }
+  };
+
+  const handleAction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    startAnalysis(inputValue);
+  };
+
+  const handleReloadRetry = () => {
+    if (inputValue.trim()) {
+      localStorage.setItem("retry_value", inputValue.trim());
+    }
+    window.location.reload();
   };
 
   const retailPriceJpy = productInfo ? calculateRetailPrice(manualUsdPrice, productInfo.exchangeRate, discount) : 0;
@@ -316,7 +332,7 @@ export default function App() {
                   >
                     <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Taking too long?</span>
                     <button
-                      onClick={() => window.location.reload()}
+                      onClick={handleReloadRetry}
                       className="text-[10px] font-black text-black underline uppercase tracking-widest"
                     >
                       Reload & Retry
@@ -341,7 +357,7 @@ export default function App() {
                 {error}
               </div>
               <button
-                onClick={() => window.location.reload()}
+                onClick={handleReloadRetry}
                 className="self-start px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors"
               >
                 Reload App
@@ -483,7 +499,15 @@ export default function App() {
                         <div className="space-y-0.5">
                           <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Retail Price (JPY)</span>
                           <div className="flex items-baseline gap-2">
-                            <span className="text-3xl font-semibold tracking-tight">¥{retailPriceJpy.toLocaleString()}</span>
+                            <span className={`text-3xl font-semibold tracking-tight transition-colors ${
+                              discount === 20 ? "text-indigo-600" :
+                              discount === 10 ? "text-blue-600" :
+                              discount === -10 ? "text-orange-600" :
+                              discount === -20 ? "text-rose-600" :
+                              "text-neutral-900"
+                            }`}>
+                              ¥{retailPriceJpy.toLocaleString()}
+                            </span>
                             {discount !== 0 && (
                               <span className="text-xs font-bold text-neutral-300 line-through">
                                 ¥{calculateRetailPrice(manualUsdPrice, productInfo!.exchangeRate, 0).toLocaleString()}
