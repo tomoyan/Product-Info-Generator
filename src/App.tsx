@@ -196,7 +196,11 @@ export default function App() {
     if (retryValue) {
       localStorage.removeItem("retry_value");
       setInputValue(retryValue);
-      startAnalysis(retryValue);
+      // Small delay to ensure the app is fully settled before starting heavy AI analysis
+      const timer = setTimeout(() => {
+        startAnalysis(retryValue);
+      }, 1000);
+      return () => clearTimeout(timer);
     }
   }, [startAnalysis]);
 
@@ -318,7 +322,7 @@ export default function App() {
                 </div>
                 <div className="flex justify-between items-center mt-1.5">
                   <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
-                    {progress > 80 ? "Almost there..." : progressMessage}
+                    {progress >= 90 ? "AI is finalizing (this can take a moment)..." : progress > 80 ? "Almost there..." : progressMessage}
                   </p>
                   <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
                     {Math.round(progress)}%
@@ -328,15 +332,24 @@ export default function App() {
                   <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="mt-4 p-3 bg-neutral-50 border border-neutral-100 rounded-xl flex items-center justify-between"
+                    className="mt-4 p-3 bg-neutral-50 border border-neutral-100 rounded-xl flex flex-col gap-2"
                   >
-                    <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Taking too long?</span>
-                    <button
-                      onClick={handleReloadRetry}
-                      className="text-[10px] font-black text-black underline uppercase tracking-widest"
-                    >
-                      Reload & Retry
-                    </button>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+                        {progress >= 90 ? "Stuck at 90%?" : "Taking too long?"}
+                      </span>
+                      <button
+                        onClick={handleReloadRetry}
+                        className="text-[10px] font-black text-black underline uppercase tracking-widest"
+                      >
+                        Clean Reload & Retry
+                      </button>
+                    </div>
+                    {progress >= 90 && (
+                      <p className="text-[9px] text-neutral-400 leading-tight italic">
+                        If progress doesn't move for 15+ seconds, a reload is recommended to reset the AI session.
+                      </p>
+                    )}
                   </motion.div>
                 )}
               </motion.div>

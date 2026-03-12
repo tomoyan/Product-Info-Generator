@@ -1,5 +1,5 @@
 {
-  "name": "Product Info Generator",
-  "description": "Extracts detailed product information from any URL and translates it into Japanese.",
+  "name": "Smart Info Pricing",
+  "description": "AI-powered product extractor that converts US store links into detailed Japanese retail listings with real-time USD-to-JPY price calculations.",
   "requestFramePermissions": []
 }
