@@ -137,7 +137,8 @@ export default function App() {
           contents: `Extract product info from ${trimmedInput} and find current USD/JPY rate.
           Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color, and a very short summary description in Japanese (1 sentence).
           Include numeric USD price and exchange rate.
-          IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.`,
+          IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
+          CRITICAL: Do not include the brand name in the English or Japanese product names.`,
           config: {
             thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
             tools: [{ urlContext: {} }, { googleSearch: {} }],
