@@ -391,8 +391,8 @@ export default function App() {
                 <div className="compact-card p-6">
                   <div className="flex items-start justify-between mb-6">
                     <div className="space-y-1">
-                      <h3 className="text-xl font-bold tracking-tight leading-tight">{productInfo.englishName}</h3>
-                      <h4 className="text-sm font-medium text-neutral-500">{productInfo.japaneseName}</h4>
+                      <h3 className="text-xl font-bold tracking-tight leading-tight">{productInfo.japaneseName}</h3>
+                      <h4 className="text-sm font-medium text-neutral-500">{productInfo.englishName}</h4>
                     </div>
                     {inputValue.startsWith("http") && (
                       <a
