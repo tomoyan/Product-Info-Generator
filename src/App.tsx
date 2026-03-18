@@ -25,6 +25,8 @@ interface ProductInfo {
   };
 }
 
+const CACHE_DURATION = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+
 export default function App() {
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
@@ -55,48 +57,68 @@ export default function App() {
           setTimeout(() => reject(new Error("TIMEOUT")), 45000)
         );
 
-        const aiPromise = ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: "Find the current USD to JPY market exchange rate. Return only the numeric value.",
-          config: {
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-            tools: [{ googleSearch: {} }],
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate" },
-              },
-              required: ["exchangeRate"],
-            },
-          },
-        });
+        // Check cache for exchange rate
+        const cachedRate = localStorage.getItem("usd_jpy_rate");
+        const cachedTimestamp = localStorage.getItem("usd_jpy_timestamp");
+        const now = Date.now();
+        const isCacheValid = cachedRate && cachedTimestamp && (now - parseInt(cachedTimestamp)) < CACHE_DURATION;
+        
+        let finalRate: number;
 
-        const response: any = await Promise.race([aiPromise, timeoutPromise]);
-        const text = response.text;
-        if (text) {
+        if (isCacheValid) {
+          finalRate = parseFloat(cachedRate!);
           setProgress(100);
-          setProgressMessage("Check complete!");
-          const data = JSON.parse(text);
-          
-          setProductInfo({
-            englishName: "Quick Price Check",
-            japaneseName: "クイック価格チェック",
-            usdPriceValue: usdValue,
-            exchangeRate: data.exchangeRate,
-            details: {
-              price: `$${usdValue.toFixed(2)}`,
-              id: "-",
-              material: "-",
-              dimensions: "-",
-              color: "-",
-              description: "クイックチェックの結果です。詳細情報は含まれません。"
-            }
-          });
-          setManualUsdPrice(usdValue);
+          setProgressMessage("Check complete (cached)!");
         } else {
-          throw new Error("Could not fetch exchange rate.");
+          const aiPromise = ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: "Find the current USD to JPY market exchange rate. Return only the numeric value.",
+            config: {
+              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+              tools: [{ googleSearch: {} }],
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate" },
+                },
+                required: ["exchangeRate"],
+              },
+            },
+          });
+
+          const response: any = await Promise.race([aiPromise, timeoutPromise]);
+          const text = response.text;
+          if (text) {
+            const data = JSON.parse(text);
+            finalRate = data.exchangeRate;
+            
+            // Update cache
+            localStorage.setItem("usd_jpy_rate", finalRate.toString());
+            localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
+            
+            setProgress(100);
+            setProgressMessage("Check complete!");
+          } else {
+            throw new Error("Could not fetch exchange rate.");
+          }
         }
+
+        setProductInfo({
+          englishName: "Quick Price Check",
+          japaneseName: "クイック価格チェック",
+          usdPriceValue: usdValue,
+          exchangeRate: finalRate,
+          details: {
+            price: `$${usdValue.toFixed(2)}`,
+            id: "-",
+            material: "-",
+            dimensions: "-",
+            color: "-",
+            description: "クイックチェックの結果です。詳細情報は含まれません。"
+          }
+        });
+        setManualUsdPrice(usdValue);
       } catch (err: any) {
         console.error(err);
         if (err.message === "TIMEOUT") {
@@ -132,16 +154,24 @@ export default function App() {
           setTimeout(() => reject(new Error("TIMEOUT")), 45000)
         );
 
+        // Check cache for exchange rate
+        const cachedRate = localStorage.getItem("usd_jpy_rate");
+        const cachedTimestamp = localStorage.getItem("usd_jpy_timestamp");
+        const now = Date.now();
+        const isCacheValid = cachedRate && cachedTimestamp && (now - parseInt(cachedTimestamp)) < CACHE_DURATION;
+        
+        const rateToUse = isCacheValid ? parseFloat(cachedRate!) : null;
+
         const aiPromise = ai.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: `Extract product info from ${trimmedInput} and find current USD/JPY rate.
+          contents: `Extract product info from ${trimmedInput}${rateToUse ? `. The current USD/JPY exchange rate is ${rateToUse}.` : " and find current USD/JPY rate."}
           Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color, and a very short summary description in Japanese (1 sentence).
           Include numeric USD price and exchange rate.
           IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
           CRITICAL: Do not include the brand name in the English or Japanese product names.`,
           config: {
             thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-            tools: [{ urlContext: {} }, { googleSearch: {} }],
+            tools: rateToUse ? [{ urlContext: {} }] : [{ urlContext: {} }, { googleSearch: {} }],
             responseMimeType: "application/json",
             responseSchema: {
               type: Type.OBJECT,
@@ -174,6 +204,13 @@ export default function App() {
           setProgress(100);
           setProgressMessage("Extraction complete!");
           const data = JSON.parse(text);
+          
+          // Update cache if we fetched a new rate or if the cached one was used
+          if (data.exchangeRate) {
+            localStorage.setItem("usd_jpy_rate", data.exchangeRate.toString());
+            localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
+          }
+
           setProductInfo(data);
           setManualUsdPrice(data.usdPriceValue);
         } else {
@@ -192,19 +229,6 @@ export default function App() {
       }
     }
   }, [discount]); // Added discount to dependencies if it impacts startAnalysis, though it mostly impacts retailPriceJpy
-
-  useEffect(() => {
-    const retryValue = localStorage.getItem("retry_value");
-    if (retryValue) {
-      localStorage.removeItem("retry_value");
-      setInputValue(retryValue);
-      // Small delay to ensure the app is fully settled before starting heavy AI analysis
-      const timer = setTimeout(() => {
-        startAnalysis(retryValue);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [startAnalysis]);
 
   const calculateRetailPrice = (usd: number, rate: number, discountPct: number = 0) => {
     const tax = 1.1; // 10%
@@ -234,13 +258,6 @@ export default function App() {
   const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
     startAnalysis(inputValue);
-  };
-
-  const handleReloadRetry = () => {
-    if (inputValue.trim()) {
-      localStorage.setItem("retry_value", inputValue.trim());
-    }
-    window.location.reload();
   };
 
   const retailPriceJpy = productInfo ? calculateRetailPrice(manualUsdPrice, productInfo.exchangeRate, discount) : 0;
@@ -324,36 +341,12 @@ export default function App() {
                 </div>
                 <div className="flex justify-between items-center mt-1.5">
                   <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
-                    {progress >= 90 ? "AI is finalizing (this can take a moment)..." : progress > 80 ? "Almost there..." : progressMessage}
+                    {progress > 80 ? "Almost there..." : progressMessage}
                   </p>
                   <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
                     {Math.round(progress)}%
                   </p>
                 </div>
-                {progress > 50 && (
-                  <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="mt-4 p-3 bg-neutral-50 border border-neutral-100 rounded-xl flex flex-col gap-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
-                        {progress >= 90 ? "Stuck at 90%?" : "Taking too long?"}
-                      </span>
-                      <button
-                        onClick={handleReloadRetry}
-                        className="text-[10px] font-black text-black underline uppercase tracking-widest"
-                      >
-                        Clean Reload & Retry
-                      </button>
-                    </div>
-                    {progress >= 90 && (
-                      <p className="text-[9px] text-neutral-400 leading-tight italic">
-                        If progress doesn't move for 15+ seconds, a reload is recommended to reset the AI session.
-                      </p>
-                    )}
-                  </motion.div>
-                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -371,12 +364,6 @@ export default function App() {
                 <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                 {error}
               </div>
-              <button
-                onClick={handleReloadRetry}
-                className="self-start px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors"
-              >
-                Reload App
-              </button>
             </motion.div>
           )}
 
