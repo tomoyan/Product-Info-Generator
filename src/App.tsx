@@ -10,6 +10,32 @@ import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, Doll
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+const extractJson = (text: string) => {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const match = text.match(/```json\n([\s\S]*?)\n```/) || text.match(/```([\s\S]*?)```/);
+    if (match) {
+      try {
+        return JSON.parse(match[1].trim());
+      } catch (e2) {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start !== -1 && end !== -1) {
+          return JSON.parse(text.substring(start, end + 1));
+        }
+      }
+    } else {
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if (start !== -1 && end !== -1) {
+        return JSON.parse(text.substring(start, end + 1));
+      }
+    }
+    throw new Error("Failed to parse JSON from AI response");
+  }
+};
+
 interface ProductInfo {
   englishName: string;
   japaneseName: string;
@@ -72,25 +98,16 @@ export default function App() {
         } else {
           const aiPromise = ai.models.generateContent({
             model: "gemini-3-flash-preview",
-            contents: "Find the current USD to JPY market exchange rate. Return only the numeric value.",
+            contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
             config: {
-              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
               tools: [{ googleSearch: {} }],
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate" },
-                },
-                required: ["exchangeRate"],
-              },
             },
           });
 
           const response: any = await Promise.race([aiPromise, timeoutPromise]);
           const text = response.text;
           if (text) {
-            const data = JSON.parse(text);
+            const data = extractJson(text);
             finalRate = data.exchangeRate;
             
             // Update cache
@@ -160,41 +177,86 @@ export default function App() {
         const now = Date.now();
         const isCacheValid = cachedRate && cachedTimestamp && (now - parseInt(cachedTimestamp)) < CACHE_DURATION;
         
-        const rateToUse = isCacheValid ? parseFloat(cachedRate!) : null;
+        let rateToUse: number | null = isCacheValid ? parseFloat(cachedRate!) : null;
 
+        // Fetch rate if not in cache
+        if (!rateToUse) {
+          setProgressMessage("Fetching fresh exchange rate...");
+          const rateAiPromise = ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
+            config: {
+              tools: [{ googleSearch: {} }],
+              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  exchangeRate: { type: Type.NUMBER }
+                },
+                required: ["exchangeRate"]
+              }
+            },
+          });
+
+          const rateResponse: any = await Promise.race([rateAiPromise, timeoutPromise]);
+          const rateText = rateResponse.text;
+          if (rateText) {
+            const rateData = extractJson(rateText);
+            rateToUse = rateData.exchangeRate;
+            localStorage.setItem("usd_jpy_rate", rateToUse!.toString());
+            localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
+          }
+        }
+
+        const isUrl = trimmedInput.startsWith("http");
+        setProgressMessage(isUrl ? "Analyzing product page..." : "Searching product info...");
+        
         const aiPromise = ai.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: `Extract product info from ${trimmedInput}${rateToUse ? `. The current USD/JPY exchange rate is ${rateToUse}.` : " and find current USD/JPY rate."}
-          Return English name, Japanese name, and details (Japanese): price (USD), ID, material, dimensions (cm), color, and a very short summary description in Japanese (1 sentence).
-          Include numeric USD price and exchange rate.
+          contents: `Extract product info from: ${trimmedInput}. The current USD/JPY exchange rate is ${rateToUse}.
+          Return the result as a JSON object with the following structure:
+          {
+            "englishName": "Product name in English",
+            "japaneseName": "Product name in Japanese",
+            "usdPriceValue": 12.00,
+            "exchangeRate": 150.5,
+            "details": {
+              "price": "$12.00",
+              "id": "SKU if available",
+              "material": "Material in Japanese",
+              "dimensions": "Dimensions in cm in Japanese",
+              "color": "Color in Japanese",
+              "description": "Short 1-sentence summary in Japanese"
+            }
+          }
           IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
           CRITICAL: Do not include the brand name in the English or Japanese product names.`,
           config: {
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-            tools: rateToUse ? [{ urlContext: {} }] : [{ urlContext: {} }, { googleSearch: {} }],
+            tools: [{ urlContext: {} }, { googleSearch: {} }],
             responseMimeType: "application/json",
             responseSchema: {
               type: Type.OBJECT,
               properties: {
-                englishName: { type: Type.STRING, description: "Product name in English" },
-                japaneseName: { type: Type.STRING, description: "Product name in Japanese" },
-                usdPriceValue: { type: Type.NUMBER, description: "Numeric value of the USD price (e.g., 12.00)" },
-                exchangeRate: { type: Type.NUMBER, description: "Current USD to JPY exchange rate (e.g., 150.5)" },
+                englishName: { type: Type.STRING },
+                japaneseName: { type: Type.STRING },
+                usdPriceValue: { type: Type.NUMBER },
+                exchangeRate: { type: Type.NUMBER },
                 details: {
                   type: Type.OBJECT,
                   properties: {
-                    price: { type: Type.STRING, description: "Price in US Dollars (e.g., $12.00)" },
-                    id: { type: Type.STRING, description: "Product ID or SKU if available" },
-                    material: { type: Type.STRING, description: "Product material in Japanese" },
-                    dimensions: { type: Type.STRING, description: "Dimensions in cm in Japanese" },
-                    color: { type: Type.STRING, description: "Product color in Japanese" },
-                    description: { type: Type.STRING, description: "Short 1-sentence summary of the product in Japanese" },
+                    price: { type: Type.STRING },
+                    id: { type: Type.STRING },
+                    material: { type: Type.STRING },
+                    dimensions: { type: Type.STRING },
+                    color: { type: Type.STRING },
+                    description: { type: Type.STRING }
                   },
-                  required: ["price"],
-                },
+                  required: ["price", "description"]
+                }
               },
-              required: ["englishName", "japaneseName", "details", "usdPriceValue", "exchangeRate"],
-            },
+              required: ["englishName", "japaneseName", "usdPriceValue", "exchangeRate", "details"]
+            }
           },
         });
 
@@ -203,7 +265,7 @@ export default function App() {
         if (text) {
           setProgress(100);
           setProgressMessage("Extraction complete!");
-          const data = JSON.parse(text);
+          const data = extractJson(text);
           
           // Update cache if we fetched a new rate or if the cached one was used
           if (data.exchangeRate) {
