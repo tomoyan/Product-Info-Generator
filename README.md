@@ -35,7 +35,7 @@ This tool leverages the **Gemini 3 Flash** model to analyze product pages or sea
 
 ## 🛠 How It Works
 
-1.  **Input Phase:** The user provides a URL or product name.
+1.  **Input Phase:** The user provides a URL or product price.
 2.  **Rate Verification:** The app checks `localStorage` for a valid USD/JPY rate. If expired or missing, it triggers a lightweight AI call to fetch the latest market rate.
 3.  **AI Analysis:** 
     - If a URL is provided, the model uses the `urlContext` tool to parse the specific page.

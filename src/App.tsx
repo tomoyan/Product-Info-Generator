@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText } from "lucide-react";
+import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText, RefreshCw } from "lucide-react";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -63,6 +63,61 @@ export default function App() {
   const [discount, setDiscount] = useState<number>(0);
   const [manualUsdPrice, setManualUsdPrice] = useState<number>(0);
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
+
+  const refreshExchangeRate = async () => {
+    if (loading) return;
+    setLoading(true);
+    setProgress(0);
+    setProgressMessage("Refreshing exchange rate...");
+    
+    try {
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("TIMEOUT")), 45000)
+      );
+
+      const rateAiPromise = ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
+        config: {
+          tools: [{ googleSearch: {} }],
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              exchangeRate: { type: Type.NUMBER }
+            },
+            required: ["exchangeRate"]
+          }
+        },
+      });
+
+      const rateResponse: any = await Promise.race([rateAiPromise, timeoutPromise]);
+      const rateText = rateResponse.text;
+      if (rateText) {
+        const rateData = extractJson(rateText);
+        const newRate = rateData.exchangeRate;
+        
+        if (productInfo) {
+          setProductInfo({
+            ...productInfo,
+            exchangeRate: newRate
+          });
+        }
+        
+        localStorage.setItem("usd_jpy_rate", newRate.toString());
+        localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
+        
+        setProgress(100);
+        setProgressMessage("Rate updated!");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError("Failed to refresh exchange rate.");
+    } finally {
+      setTimeout(() => setLoading(false), 500);
+    }
+  };
 
   const startAnalysis = useCallback(async (value: string) => {
     const trimmedInput = value.trim();
@@ -610,7 +665,17 @@ export default function App() {
                   </div>
                   
                   <div className="mt-6 pt-4 border-t border-neutral-100 flex items-center justify-between text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                    <span>Rate</span>
+                    <div className="flex items-center gap-1.5">
+                      <span>Rate</span>
+                      <button 
+                        onClick={refreshExchangeRate}
+                        disabled={loading}
+                        className="hover:text-black transition-colors disabled:opacity-50"
+                        title="Refresh exchange rate"
+                      >
+                        <RefreshCw size={10} className={loading ? "animate-spin" : ""} />
+                      </button>
+                    </div>
                     <span>¥{productInfo.exchangeRate} / USD</span>
                   </div>
                 </div>
