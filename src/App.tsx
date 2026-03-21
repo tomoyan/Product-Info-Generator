@@ -315,7 +315,70 @@ export default function App() {
           },
         });
 
-        const response: any = await Promise.race([aiPromise, timeoutPromise]);
+        let response: any;
+        try {
+          response = await Promise.race([aiPromise, timeoutPromise]);
+        } catch (err: any) {
+          const errorMsg = err?.message || "";
+          // Check for the specific "page too large" error or generic invalid argument that often accompanies it
+          if (errorMsg.includes("size() > 2621440") || errorMsg.includes("INVALID_ARGUMENT")) {
+            setProgressMessage("Page too large for direct analysis. Falling back to search...");
+            
+            // Fallback: Try again using googleSearch instead of urlContext
+            const fallbackAiPromise = ai.models.generateContent({
+              model: "gemini-3-flash-preview",
+              contents: `Extract product info for this item: ${trimmedInput}. The current USD/JPY exchange rate is ${rateToUse}.
+              Return the result as a JSON object with the following structure:
+              {
+                "englishName": "Product name in English",
+                "japaneseName": "Product name in Japanese",
+                "usdPriceValue": 12.00,
+                "exchangeRate": 150.5,
+                "details": {
+                  "price": "$12.00",
+                  "id": "SKU if available",
+                  "material": "Material in Japanese",
+                  "dimensions": "Dimensions in cm in Japanese",
+                  "color": "Color in Japanese",
+                  "description": "Short 1-sentence summary in Japanese"
+                }
+              }
+              IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
+              CRITICAL: Do not include the brand name in the English or Japanese product names.`,
+              config: {
+                tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    englishName: { type: Type.STRING },
+                    japaneseName: { type: Type.STRING },
+                    usdPriceValue: { type: Type.NUMBER },
+                    exchangeRate: { type: Type.NUMBER },
+                    details: {
+                      type: Type.OBJECT,
+                      properties: {
+                        price: { type: Type.STRING },
+                        id: { type: Type.STRING },
+                        material: { type: Type.STRING },
+                        dimensions: { type: Type.STRING },
+                        color: { type: Type.STRING },
+                        description: { type: Type.STRING }
+                      },
+                      required: ["price", "description"]
+                    }
+                  },
+                  required: ["englishName", "japaneseName", "usdPriceValue", "exchangeRate", "details"]
+                }
+              },
+            });
+            
+            response = await Promise.race([fallbackAiPromise, timeoutPromise]);
+          } else {
+            throw err;
+          }
+        }
+
         const text = response.text;
         if (text) {
           setProgress(100);
