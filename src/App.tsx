@@ -72,7 +72,7 @@ export default function App() {
     
     try {
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT")), 45000)
+        setTimeout(() => reject(new Error("TIMEOUT")), 90000)
       );
 
       const rateAiPromise = ai.models.generateContent({
@@ -135,7 +135,7 @@ export default function App() {
       setProgressMessage("Fetching exchange rate...");
       try {
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("TIMEOUT")), 45000)
+          setTimeout(() => reject(new Error("TIMEOUT")), 90000)
         );
 
         // Check cache for exchange rate
@@ -223,7 +223,7 @@ export default function App() {
 
       try {
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("TIMEOUT")), 45000)
+          setTimeout(() => reject(new Error("TIMEOUT")), 90000)
         );
 
         // Check cache for exchange rate
@@ -232,44 +232,17 @@ export default function App() {
         const now = Date.now();
         const isCacheValid = cachedRate && cachedTimestamp && (now - parseInt(cachedTimestamp)) < CACHE_DURATION;
         
-        let rateToUse: number | null = isCacheValid ? parseFloat(cachedRate!) : null;
-
-        // Fetch rate if not in cache
-        if (!rateToUse) {
-          setProgressMessage("Fetching fresh exchange rate...");
-          const rateAiPromise = ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
-            config: {
-              tools: [{ googleSearch: {} }],
-              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  exchangeRate: { type: Type.NUMBER }
-                },
-                required: ["exchangeRate"]
-              }
-            },
-          });
-
-          const rateResponse: any = await Promise.race([rateAiPromise, timeoutPromise]);
-          const rateText = rateResponse.text;
-          if (rateText) {
-            const rateData = extractJson(rateText);
-            rateToUse = rateData.exchangeRate;
-            localStorage.setItem("usd_jpy_rate", rateToUse!.toString());
-            localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
-          }
-        }
-
+        const rateToUse: number | null = isCacheValid ? parseFloat(cachedRate!) : null;
         const isUrl = trimmedInput.startsWith("http");
         setProgressMessage(isUrl ? "Analyzing product page..." : "Searching product info...");
         
+        const rateInstruction = rateToUse 
+          ? `The current USD/JPY exchange rate is ${rateToUse}.` 
+          : `Find the current USD/JPY market exchange rate and use it for calculations.`;
+
         const aiPromise = ai.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: `Extract product info from: ${trimmedInput}. The current USD/JPY exchange rate is ${rateToUse}.
+          contents: `Extract product info from: ${trimmedInput}. ${rateInstruction}
           Return the result as a JSON object with the following structure:
           {
             "englishName": "Product name in English",
@@ -327,7 +300,7 @@ export default function App() {
             // Fallback: Try again using googleSearch instead of urlContext
             const fallbackAiPromise = ai.models.generateContent({
               model: "gemini-3-flash-preview",
-              contents: `Extract product info for this item: ${trimmedInput}. The current USD/JPY exchange rate is ${rateToUse}.
+              contents: `Extract product info for this item: ${trimmedInput}. ${rateInstruction}
               Return the result as a JSON object with the following structure:
               {
                 "englishName": "Product name in English",
@@ -399,7 +372,7 @@ export default function App() {
       } catch (err: any) {
         console.error(err);
         if (err.message === "TIMEOUT") {
-          setError("The analysis is taking longer than usual. Please reload and try again.");
+          setError("The analysis timed out. This can happen with complex product pages. Please try again or use the product name instead of a URL.");
         } else {
           setError(err.message || "An error occurred while extracting information.");
         }
