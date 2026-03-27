@@ -259,7 +259,8 @@ export default function App() {
             }
           }
           IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
-          CRITICAL: Do not include the brand name in the English or Japanese product names.`,
+          CRITICAL: Do not include the brand name in the English or Japanese product names.
+          DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
           config: {
             tools: [{ urlContext: {} }, { googleSearch: {} }],
             responseMimeType: "application/json",
@@ -276,7 +277,10 @@ export default function App() {
                     price: { type: Type.STRING },
                     id: { type: Type.STRING },
                     material: { type: Type.STRING },
-                    dimensions: { type: Type.STRING },
+                    dimensions: { 
+                      type: Type.STRING,
+                      description: "Product dimensions in cm, prefixed with '約' (e.g., 約W10 x H20 cm)"
+                    },
                     color: { type: Type.STRING },
                     description: { type: Type.STRING }
                   },
@@ -317,7 +321,8 @@ export default function App() {
                 }
               }
               IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
-              CRITICAL: Do not include the brand name in the English or Japanese product names.`,
+              CRITICAL: Do not include the brand name in the English or Japanese product names.
+              DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
               config: {
                 tools: [{ googleSearch: {} }],
                 responseMimeType: "application/json",
@@ -334,7 +339,10 @@ export default function App() {
                         price: { type: Type.STRING },
                         id: { type: Type.STRING },
                         material: { type: Type.STRING },
-                        dimensions: { type: Type.STRING },
+                        dimensions: { 
+                          type: Type.STRING,
+                          description: "Product dimensions in cm, prefixed with '約' (e.g., 約W10 x H20 cm)"
+                        },
                         color: { type: Type.STRING },
                         description: { type: Type.STRING }
                       },
