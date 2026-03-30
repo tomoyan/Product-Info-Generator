@@ -1,5 +1,5 @@
 {
-  "name": "Smart Info Pricing",
+  "name": "Pricing Analysis",
   "description": "AI-powered product extractor that converts US store links into detailed Japanese retail listings with real-time USD-to-JPY price calculations.",
   "requestFramePermissions": []
 }

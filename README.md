@@ -1,4 +1,4 @@
-# Product Info Extractor & JPY Pricing Tool
+# Product Analyzer & JPY Pricing Tool
 
 A sophisticated, AI-powered web application designed to streamline the process of extracting product information from international websites and calculating localized retail prices for the Japanese market.
 

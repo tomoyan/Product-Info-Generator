@@ -72,7 +72,7 @@ export default function App() {
     
     try {
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT")), 90000)
+        setTimeout(() => reject(new Error("TIMEOUT")), 120000)
       );
 
       const rateAiPromise = ai.models.generateContent({
@@ -135,7 +135,7 @@ export default function App() {
       setProgressMessage("Fetching exchange rate...");
       try {
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("TIMEOUT")), 90000)
+          setTimeout(() => reject(new Error("TIMEOUT")), 120000)
         );
 
         // Check cache for exchange rate
@@ -156,6 +156,15 @@ export default function App() {
             contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
             config: {
               tools: [{ googleSearch: {} }],
+              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  exchangeRate: { type: Type.NUMBER }
+                },
+                required: ["exchangeRate"]
+              }
             },
           });
 
@@ -223,7 +232,7 @@ export default function App() {
 
       try {
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("TIMEOUT")), 90000)
+          setTimeout(() => reject(new Error("TIMEOUT")), 120000)
         );
 
         // Check cache for exchange rate
@@ -264,6 +273,7 @@ export default function App() {
           config: {
             tools: [{ urlContext: {} }, { googleSearch: {} }],
             responseMimeType: "application/json",
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
             responseSchema: {
               type: Type.OBJECT,
               properties: {
@@ -326,6 +336,7 @@ export default function App() {
               config: {
                 tools: [{ googleSearch: {} }],
                 responseMimeType: "application/json",
+                thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
                 responseSchema: {
                   type: Type.OBJECT,
                   properties: {
@@ -432,7 +443,7 @@ export default function App() {
             <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white shadow-lg shadow-black/10">
               <Package size={16} strokeWidth={2.5} />
             </div>
-            <h1 className="text-sm font-bold tracking-tight uppercase">Extractor</h1>
+            <h1 className="text-sm font-bold tracking-tight uppercase">Analyzer</h1>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.2em]">v2.0 • AI Analysis</span>
@@ -743,7 +754,7 @@ export default function App() {
       </main>
 
       <footer className="max-w-5xl w-full mx-auto px-6 py-8 flex items-center justify-between text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-        <p>© 2026 Extractor</p>
+        <p>© 2026 Analyzer</p>
         <div className="flex gap-6">
           <a href="#" className="hover:text-black transition-colors">Privacy</a>
           <a href="#" className="hover:text-black transition-colors">Terms</a>
