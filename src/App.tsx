@@ -8,7 +8,15 @@ import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText, RefreshCw, Sun, Moon } from "lucide-react";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const getAiKey = () => {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || key === "your_api_key_here") {
+    console.warn("GEMINI_API_KEY is not set or is using the placeholder value.");
+  }
+  return key || "";
+};
+
+const ai = new GoogleGenAI({ apiKey: getAiKey() });
 
 const extractJson = (text: string) => {
   try {
@@ -33,6 +41,90 @@ const extractJson = (text: string) => {
       }
     }
     throw new Error("Failed to parse JSON from AI response");
+  }
+};
+
+const withRetry = async <T extends unknown>(
+  fn: () => Promise<T>,
+  retries = 3,
+  baseDelay = 1000,
+  onRetry?: (attempt: number, error: any) => void
+): Promise<T> => {
+  let lastError: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (i < retries - 1) {
+        const delay = baseDelay * Math.pow(2, i);
+        if (onRetry) onRetry(i + 1, error);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+};
+
+const fetchMarketRate = async (
+  setProgressMsg?: (msg: string) => void
+): Promise<number> => {
+  const timeoutPromise = new Promise<never>((_, reject) => 
+    setTimeout(() => reject(new Error("TIMEOUT")), 60000)
+  );
+
+  const fetchFromLocalApi = async () => {
+    const response = await fetch("/api/exchange-rate");
+    if (!response.ok) throw new Error(`Local API error: ${response.status}`);
+    const data = await response.json();
+    if (data?.exchangeRate) return data.exchangeRate as number;
+    throw new Error("Invalid local API response");
+  };
+
+  const fetchFromAi = async () => {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
+        config: {
+          tools: [{ googleSearch: {} }],
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              exchangeRate: { type: Type.NUMBER }
+            },
+            required: ["exchangeRate"]
+          }
+        },
+      });
+      const text = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
+      if (!text) throw new Error("Empty AI response from Gemini");
+      const data = extractJson(text);
+      if (typeof data.exchangeRate === 'number') return data.exchangeRate;
+      throw new Error("Invalid AI format from Gemini");
+    } catch (err: any) {
+      console.error("Gemini API Error (Exchange Rate):", err);
+      throw new Error(`Gemini API Error: ${err.message || "Unknown error"}`);
+    }
+  };
+
+  if (setProgressMsg) setProgressMsg("Fetching market rate...");
+
+  try {
+    // Race the local API (which handles multiple sources server-side) against the AI fallback.
+    // The local API will be near-instant as it avoids CORS and browser overhead.
+    return await Promise.race([
+      Promise.any([
+        fetchFromLocalApi(),
+        withRetry(fetchFromAi, 0) // No retries for AI fallback to keep it fast
+      ]),
+      timeoutPromise
+    ]);
+  } catch (err) {
+    console.error("All exchange rate sources failed:", err);
+    throw new Error("Could not fetch live exchange rate.");
   }
 };
 
@@ -84,49 +176,23 @@ export default function App() {
     setProgressMessage("Refreshing exchange rate...");
     
     try {
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT")), 120000)
-      );
-
-      const rateAiPromise = ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
-        config: {
-          tools: [{ googleSearch: {} }],
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              exchangeRate: { type: Type.NUMBER }
-            },
-            required: ["exchangeRate"]
-          }
-        },
-      });
-
-      const rateResponse: any = await Promise.race([rateAiPromise, timeoutPromise]);
-      const rateText = rateResponse.text;
-      if (rateText) {
-        const rateData = extractJson(rateText);
-        const newRate = rateData.exchangeRate;
-        
-        if (productInfo) {
-          setProductInfo({
-            ...productInfo,
-            exchangeRate: newRate
-          });
-        }
-        
-        localStorage.setItem("usd_jpy_rate", newRate.toString());
-        localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
-        
-        setProgress(100);
-        setProgressMessage("Rate updated!");
+      const newRate = await fetchMarketRate(setProgressMessage);
+      
+      if (productInfo) {
+        setProductInfo({
+          ...productInfo,
+          exchangeRate: newRate
+        });
       }
+      
+      localStorage.setItem("usd_jpy_rate", newRate.toString());
+      localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
+      
+      setProgress(100);
+      setProgressMessage("Rate updated!");
     } catch (err: any) {
-      console.error(err);
-      setError("Failed to refresh exchange rate.");
+      console.error("Exchange rate refresh error:", err);
+      setError(`Failed to refresh rate: ${err.message || "Unknown error"}`);
     } finally {
       setTimeout(() => setLoading(false), 500);
     }
@@ -157,45 +223,38 @@ export default function App() {
         const now = Date.now();
         const isCacheValid = cachedRate && cachedTimestamp && (now - parseInt(cachedTimestamp)) < CACHE_DURATION;
         
-        let finalRate: number;
+        let finalRate: number | null = null;
 
         if (isCacheValid) {
           finalRate = parseFloat(cachedRate!);
           setProgress(100);
           setProgressMessage("Check complete (cached)!");
         } else {
-          const aiPromise = ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
-            config: {
-              tools: [{ googleSearch: {} }],
-              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  exchangeRate: { type: Type.NUMBER }
-                },
-                required: ["exchangeRate"]
-              }
-            },
-          });
-
-          const response: any = await Promise.race([aiPromise, timeoutPromise]);
-          const text = response.text;
-          if (text) {
-            const data = extractJson(text);
-            finalRate = data.exchangeRate;
+          try {
+            finalRate = await fetchMarketRate(setProgressMessage);
             
-            // Update cache
-            localStorage.setItem("usd_jpy_rate", finalRate.toString());
-            localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
-            
-            setProgress(100);
-            setProgressMessage("Check complete!");
-          } else {
-            throw new Error("Could not fetch exchange rate.");
+            if (finalRate) {
+              // Update cache
+              localStorage.setItem("usd_jpy_rate", finalRate.toString());
+              localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
+              
+              setProgress(100);
+              setProgressMessage("Check complete!");
+            }
+          } catch (fetchErr) {
+            console.warn("Live exchange rate fetch failed after all attempts, checking for stale cache...", fetchErr);
           }
+
+          // Fallback to stale cache if live fetch failed
+          if (!finalRate && cachedRate) {
+            finalRate = parseFloat(cachedRate);
+            setProgress(100);
+            setProgressMessage("Check complete (using stale rate)!");
+          }
+        }
+
+        if (!finalRate) {
+          throw new Error("Could not fetch exchange rate and no cached rate available.");
         }
 
         setProductInfo({
@@ -262,72 +321,11 @@ export default function App() {
           ? `The current USD/JPY exchange rate is ${rateToUse}.` 
           : `Find the current USD/JPY market exchange rate and use it for calculations.`;
 
-        const aiPromise = ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Extract product info from: ${trimmedInput}. ${rateInstruction}
-          Return the result as a JSON object with the following structure:
-          {
-            "englishName": "Product name in English",
-            "japaneseName": "Product name in Japanese",
-            "usdPriceValue": 12.00,
-            "exchangeRate": 150.5,
-            "details": {
-              "price": "$12.00",
-              "id": "SKU if available",
-              "material": "Material in Japanese",
-              "dimensions": "Dimensions in cm in Japanese",
-              "color": "Color in Japanese",
-              "description": "Short 1-sentence summary in Japanese"
-            }
-          }
-          IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
-          CRITICAL: Do not include the brand name in the English or Japanese product names.
-          DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
-          config: {
-            tools: [{ urlContext: {} }, { googleSearch: {} }],
-            responseMimeType: "application/json",
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                englishName: { type: Type.STRING },
-                japaneseName: { type: Type.STRING },
-                usdPriceValue: { type: Type.NUMBER },
-                exchangeRate: { type: Type.NUMBER },
-                details: {
-                  type: Type.OBJECT,
-                  properties: {
-                    price: { type: Type.STRING },
-                    id: { type: Type.STRING },
-                    material: { type: Type.STRING },
-                    dimensions: { 
-                      type: Type.STRING,
-                      description: "Product dimensions in cm, prefixed with '約' (e.g., 約W10 x H20 cm)"
-                    },
-                    color: { type: Type.STRING },
-                    description: { type: Type.STRING }
-                  },
-                  required: ["price", "description"]
-                }
-              },
-              required: ["englishName", "japaneseName", "usdPriceValue", "exchangeRate", "details"]
-            }
-          },
-        });
-
-        let response: any;
-        try {
-          response = await Promise.race([aiPromise, timeoutPromise]);
-        } catch (err: any) {
-          const errorMsg = err?.message || "";
-          // Check for the specific "page too large" error or generic invalid argument that often accompanies it
-          if (errorMsg.includes("size() > 2621440") || errorMsg.includes("INVALID_ARGUMENT")) {
-            setProgressMessage("Page too large for direct analysis. Falling back to search...");
-            
-            // Fallback: Try again using googleSearch instead of urlContext
-            const fallbackAiPromise = ai.models.generateContent({
+        const aiPromise = (async () => {
+          try {
+            const response = await ai.models.generateContent({
               model: "gemini-3-flash-preview",
-              contents: `Extract product info for this item: ${trimmedInput}. ${rateInstruction}
+              contents: `Extract product info from: ${trimmedInput}. ${rateInstruction}
               Return the result as a JSON object with the following structure:
               {
                 "englishName": "Product name in English",
@@ -347,7 +345,7 @@ export default function App() {
               CRITICAL: Do not include the brand name in the English or Japanese product names.
               DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
               config: {
-                tools: [{ googleSearch: {} }],
+                tools: [{ urlContext: {} }, { googleSearch: {} }],
                 responseMimeType: "application/json",
                 thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
                 responseSchema: {
@@ -377,6 +375,83 @@ export default function App() {
                 }
               },
             });
+            return response;
+          } catch (err: any) {
+            console.error("Gemini API Error (Product Analysis):", err);
+            throw new Error(`Gemini API Error: ${err.message || "Unknown error"}`);
+          }
+        })();
+
+        let response: any;
+        try {
+          response = await Promise.race([aiPromise, timeoutPromise]);
+        } catch (err: any) {
+          const errorMsg = err?.message || "";
+          // Check for the specific "page too large" error or generic invalid argument that often accompanies it
+          if (errorMsg.includes("size() > 2621440") || errorMsg.includes("INVALID_ARGUMENT")) {
+            setProgressMessage("Page too large for direct analysis. Falling back to search...");
+            
+            // Fallback: Try again using googleSearch instead of urlContext
+            const fallbackAiPromise = (async () => {
+              try {
+                const response = await ai.models.generateContent({
+                  model: "gemini-3-flash-preview",
+                  contents: `Extract product info for this item: ${trimmedInput}. ${rateInstruction}
+                  Return the result as a JSON object with the following structure:
+                  {
+                    "englishName": "Product name in English",
+                    "japaneseName": "Product name in Japanese",
+                    "usdPriceValue": 12.00,
+                    "exchangeRate": 150.5,
+                    "details": {
+                      "price": "$12.00",
+                      "id": "SKU if available",
+                      "material": "Material in Japanese",
+                      "dimensions": "Dimensions in cm in Japanese",
+                      "color": "Color in Japanese",
+                      "description": "Short 1-sentence summary in Japanese"
+                    }
+                  }
+                  IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
+                  CRITICAL: Do not include the brand name in the English or Japanese product names.
+                  DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
+                  config: {
+                    tools: [{ googleSearch: {} }],
+                    responseMimeType: "application/json",
+                    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+                    responseSchema: {
+                      type: Type.OBJECT,
+                      properties: {
+                        englishName: { type: Type.STRING },
+                        japaneseName: { type: Type.STRING },
+                        usdPriceValue: { type: Type.NUMBER },
+                        exchangeRate: { type: Type.NUMBER },
+                        details: {
+                          type: Type.OBJECT,
+                          properties: {
+                            price: { type: Type.STRING },
+                            id: { type: Type.STRING },
+                            material: { type: Type.STRING },
+                            dimensions: { 
+                              type: Type.STRING,
+                              description: "Product dimensions in cm, prefixed with '約' (e.g., 約W10 x H20 cm)"
+                            },
+                            color: { type: Type.STRING },
+                            description: { type: Type.STRING }
+                          },
+                          required: ["price", "description"]
+                        }
+                      },
+                      required: ["englishName", "japaneseName", "usdPriceValue", "exchangeRate", "details"]
+                    }
+                  },
+                });
+                return response;
+              } catch (err: any) {
+                console.error("Gemini API Error (Fallback Analysis):", err);
+                throw new Error(`Gemini API Error: ${err.message || "Unknown error"}`);
+              }
+            })();
             
             response = await Promise.race([fallbackAiPromise, timeoutPromise]);
           } else {
@@ -384,7 +459,7 @@ export default function App() {
           }
         }
 
-        const text = response.text;
+        const text = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
         if (text) {
           setProgress(100);
           setProgressMessage("Extraction complete!");
