@@ -70,7 +70,7 @@ const fetchMarketRate = async (
   setProgressMsg?: (msg: string) => void
 ): Promise<number> => {
   const timeoutPromise = new Promise<never>((_, reject) => 
-    setTimeout(() => reject(new Error("TIMEOUT")), 60000)
+    setTimeout(() => reject(new Error("TIMEOUT")), 90000)
   );
 
   const fetchFromLocalApi = async () => {
@@ -146,6 +146,8 @@ interface ProductInfo {
 const CACHE_DURATION = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
 
 export default function App() {
+  const [mode, setMode] = useState<'analyze' | 'translate'>('analyze');
+  const [translationResult, setTranslationResult] = useState<{ name?: string; summary?: string } | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -198,6 +200,89 @@ export default function App() {
     }
   };
 
+  const startTranslation = async (value: string) => {
+    const trimmedInput = value.trim();
+    if (!trimmedInput) return;
+
+    setLoading(true);
+    setProgress(0);
+    setError(null);
+    setTranslationResult(null);
+    setProductInfo(null);
+    setProgressMessage("Initializing translation...");
+
+    const progressInterval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev < 90) return prev + Math.random() * 15;
+        return prev;
+      });
+    }, 300);
+
+    try {
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("TIMEOUT")), 60000)
+      );
+
+      const aiPromise = (async () => {
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: `Translate the following product information into professional Japanese.
+            If it's a short product name, provide the Japanese name in "translatedName".
+            If it's a longer description, provide a simple, professional 1-2 sentence summary in Japanese in "translatedSummary".
+            
+            Input: ${trimmedInput}
+            
+            Return the result as a JSON object:
+            {
+              "translatedName": "Japanese name",
+              "translatedSummary": "Japanese summary"
+            }`,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  translatedName: { type: Type.STRING },
+                  translatedSummary: { type: Type.STRING }
+                }
+              }
+            }
+          });
+          return response;
+        } catch (err: any) {
+          console.error("Gemini API Error (Translation):", err);
+          throw new Error(`Gemini API Error: ${err.message || "Unknown error"}`);
+        }
+      })();
+
+      const response: any = await Promise.race([aiPromise, timeoutPromise]);
+      const text = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
+      
+      if (text) {
+        const data = extractJson(text);
+        setTranslationResult({
+          name: data.translatedName,
+          summary: data.translatedSummary
+        });
+        setProgress(100);
+        setProgressMessage("Translation complete!");
+      } else {
+        throw new Error("The AI returned an empty response. Please try again.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (err.message === "TIMEOUT") {
+        setError("The translation timed out. Please try with a shorter text or try again.");
+      } else {
+        setError(err.message || "An error occurred during translation.");
+      }
+    } finally {
+      clearInterval(progressInterval);
+      setTimeout(() => setLoading(false), 500);
+    }
+  };
+
   const startAnalysis = useCallback(async (value: string) => {
     const trimmedInput = value.trim();
     if (!trimmedInput) return;
@@ -214,7 +299,7 @@ export default function App() {
       setProgressMessage("Fetching exchange rate...");
       try {
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("TIMEOUT")), 120000)
+          setTimeout(() => reject(new Error("TIMEOUT")), 180000)
         );
 
         // Check cache for exchange rate
@@ -275,7 +360,7 @@ export default function App() {
       } catch (err: any) {
         console.error(err);
         if (err.message === "TIMEOUT") {
-          setError("The request timed out. Please try again.");
+          setError("The request timed out while fetching exchange rates. Please check your connection and try again.");
         } else {
           setError(err.message || "An error occurred during quick check.");
         }
@@ -304,7 +389,7 @@ export default function App() {
 
       try {
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("TIMEOUT")), 120000)
+          setTimeout(() => reject(new Error("TIMEOUT")), 180000)
         );
 
         // Check cache for exchange rate
@@ -385,18 +470,36 @@ export default function App() {
         let response: any;
         try {
           response = await Promise.race([aiPromise, timeoutPromise]);
+          const initialText = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
+          if (!initialText) throw new Error("EMPTY_RESPONSE");
         } catch (err: any) {
           const errorMsg = err?.message || "";
-          // Check for the specific "page too large" error or generic invalid argument that often accompanies it
-          if (errorMsg.includes("size() > 2621440") || errorMsg.includes("INVALID_ARGUMENT")) {
-            setProgressMessage("Page too large for direct analysis. Falling back to search...");
+          // Check for the specific "page too large" error, generic invalid argument, or empty response
+          if (errorMsg.includes("size() > 2621440") || errorMsg.includes("INVALID_ARGUMENT") || errorMsg === "EMPTY_RESPONSE") {
+            setProgressMessage(errorMsg === "EMPTY_RESPONSE" 
+              ? "No data found on page. Falling back to search..." 
+              : "Page too large for direct analysis. Falling back to search...");
             
             // Fallback: Try again using googleSearch instead of urlContext
             const fallbackAiPromise = (async () => {
               try {
+                // Try to extract some keywords from the URL to help the search
+                const urlKeywords = trimmedInput
+                  .split('/')
+                  .pop()
+                  ?.replace(/[-_]/g, ' ')
+                  ?.replace(/\.html?$/i, '') || "";
+
                 const response = await ai.models.generateContent({
                   model: "gemini-3-flash-preview",
-                  contents: `Extract product info for this item: ${trimmedInput}. ${rateInstruction}
+                  contents: `The direct analysis of this URL failed: ${trimmedInput}. 
+                  Potential keywords from URL: ${urlKeywords}.
+                  
+                  Please use Google Search to find the product details for this item. 
+                  Search for the product name, current USD price, and specifications (material, dimensions, color).
+                  
+                  ${rateInstruction}
+                  
                   Return the result as a JSON object with the following structure:
                   {
                     "englishName": "Product name in English",
@@ -460,6 +563,7 @@ export default function App() {
         }
 
         const text = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
+        
         if (text) {
           setProgress(100);
           setProgressMessage("Extraction complete!");
@@ -474,12 +578,27 @@ export default function App() {
           setProductInfo(data);
           setManualUsdPrice(data.usdPriceValue);
         } else {
-          throw new Error("No information could be extracted from this URL.");
+          // Detailed error reporting for empty responses
+          const finishReason = response?.candidates?.[0]?.finishReason;
+          const safetyRatings = response?.candidates?.[0]?.safetyRatings;
+          const promptFeedback = response?.promptFeedback;
+          
+          console.error("Gemini empty response details:", { finishReason, safetyRatings, promptFeedback });
+          
+          if (finishReason === "SAFETY") {
+            throw new Error("The analysis was blocked by safety filters. This can happen if the product page contains restricted content or certain keywords.");
+          } else if (finishReason === "RECITATION") {
+            throw new Error("The analysis was blocked because it triggered copyright protections (recitation).");
+          } else if (finishReason === "OTHER") {
+            throw new Error("The analysis was interrupted by the AI provider. This might be a temporary service issue. Please try again.");
+          }
+          
+          throw new Error("No information could be extracted from this URL. The site might be blocking AI analysis or the page structure is too complex. \n\nTip: Try searching by the product name instead of using a direct link, or use the 'Translate' mode for basic translation.");
         }
       } catch (err: any) {
         console.error(err);
         if (err.message === "TIMEOUT") {
-          setError("The analysis timed out. This can happen with complex product pages. Please try again or use the product name instead of a URL.");
+          setError("The analysis timed out. This can happen with complex product pages or slow connections. Please try again or use the product name instead of a URL.");
         } else {
           setError(err.message || "An error occurred while extracting information.");
         }
@@ -517,7 +636,11 @@ export default function App() {
 
   const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
-    startAnalysis(inputValue);
+    if (mode === 'analyze') {
+      startAnalysis(inputValue);
+    } else {
+      startTranslation(inputValue);
+    }
   };
 
   const retailPriceJpy = productInfo ? calculateRetailPrice(manualUsdPrice, productInfo.exchangeRate, discount) : 0;
@@ -561,16 +684,50 @@ export default function App() {
       </header>
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-10 flex flex-col gap-8 relative z-10">
+        {/* Mode Toggle */}
+        <div className="flex justify-center">
+          <div className={`p-1 rounded-2xl border flex gap-1 backdrop-blur-md ${
+            theme === 'dark' ? 'bg-white/[0.03] border-white/[0.08]' : 'bg-black/[0.03] border-black/[0.05]'
+          }`}>
+            {[
+              { id: 'analyze', label: 'Analyze', icon: Search },
+              { id: 'translate', label: 'Translate', icon: Globe }
+            ].map((m) => (
+              <button
+                key={m.id}
+                onClick={() => {
+                  setMode(m.id as any);
+                  setError(null);
+                  setProductInfo(null);
+                  setTranslationResult(null);
+                }}
+                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  mode === m.id
+                    ? theme === 'dark' 
+                      ? 'bg-white text-black shadow-lg shadow-white/10' 
+                      : 'bg-neutral-900 text-white shadow-lg shadow-neutral-900/10'
+                    : theme === 'dark'
+                      ? 'text-white/40 hover:text-white/60'
+                      : 'text-neutral-400 hover:text-neutral-600'
+                }`}
+              >
+                <m.icon size={14} />
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Input Section */}
         <section className="w-full">
           <form onSubmit={handleAction} className="relative flex gap-3">
             <div className="relative flex-1 group">
               <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white/20 group-focus-within:text-indigo-400 transition-colors">
-                <Search size={20} />
+                {mode === 'analyze' ? <Search size={20} /> : <Globe size={20} />}
               </div>
               <input
                 type="text"
-                placeholder="Paste URL or enter USD price..."
+                placeholder={mode === 'analyze' ? "Paste URL or enter USD price..." : "Enter product name or description to translate..."}
                 value={inputValue}
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -597,7 +754,7 @@ export default function App() {
                   <span>{Math.round(progress)}%</span>
                 </>
               ) : (
-                "Analyze"
+                mode === 'analyze' ? "Analyze" : "Translate"
               )}
             </button>
             {loading && (
@@ -666,6 +823,84 @@ export default function App() {
             </motion.div>
           )}
 
+          {translationResult && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-3xl mx-auto w-full"
+            >
+              <div className="compact-card p-8 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
+                
+                <div className="space-y-6">
+                  {translationResult.name && (
+                    <div className="space-y-3">
+                      <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-neutral-400'}`}>Japanese Name</span>
+                      <div className="flex items-center justify-between gap-4">
+                        <div 
+                          onClick={() => copyToClipboard("trans_name", translationResult.name!)}
+                          className="group cursor-pointer relative flex-1"
+                        >
+                          <p className={`text-xl font-bold transition-all group-hover:opacity-70 ${theme === 'dark' ? 'text-white' : 'text-neutral-900'}`}>
+                            {translationResult.name}
+                          </p>
+                          {copiedStates["trans_name"] && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="absolute -top-6 left-0 px-2 py-0.5 rounded bg-emerald-500 text-[9px] font-bold text-white uppercase tracking-widest"
+                            >
+                              Copied
+                            </motion.div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => copyToClipboard("trans_name", translationResult.name!)}
+                          className={`p-2 rounded-lg border transition-all ${
+                            copiedStates["trans_name"]
+                              ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                              : theme === 'dark'
+                                ? "bg-white/[0.05] border-white/[0.08] text-white/40 hover:text-white"
+                                : "bg-black/[0.03] border-black/[0.05] text-neutral-400 hover:text-neutral-900"
+                          }`}
+                        >
+                          {copiedStates["trans_name"] ? <Check size={16} /> : <Copy size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {translationResult.summary && (
+                    <div className="space-y-3">
+                      <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-neutral-400'}`}>Japanese Summary</span>
+                      <div className="relative group">
+                        <div className={`p-5 rounded-2xl border leading-relaxed ${
+                          theme === 'dark' 
+                            ? 'bg-white/[0.02] border-white/[0.05] text-white/80' 
+                            : 'bg-black/[0.02] border-black/[0.05] text-neutral-700'
+                        }`}>
+                          {translationResult.summary}
+                        </div>
+                        <button
+                          onClick={() => copyToClipboard("trans_summary", translationResult.summary!)}
+                          className={`absolute top-3 right-3 p-2 rounded-lg border transition-all ${
+                            copiedStates["trans_summary"]
+                              ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                              : theme === 'dark'
+                                ? "bg-white/[0.05] border-white/[0.08] text-white/40 hover:text-white opacity-0 group-hover:opacity-100"
+                                : "bg-black/[0.03] border-black/[0.05] text-neutral-400 hover:text-neutral-900 opacity-0 group-hover:opacity-100"
+                          }`}
+                        >
+                          {copiedStates["trans_summary"] ? <Check size={16} /> : <Copy size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {productInfo && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -678,9 +913,42 @@ export default function App() {
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500" />
                   
                   <div className="flex items-start justify-between mb-8">
-                    <div className="space-y-2">
-                      <h3 className={`text-2xl font-bold tracking-tight leading-tight ${theme === 'dark' ? 'text-white' : 'text-neutral-900'}`}>{productInfo.japaneseName}</h3>
-                      <h4 className={`text-sm font-medium tracking-wide ${theme === 'dark' ? 'text-white/40' : 'text-neutral-400'}`}>{productInfo.englishName}</h4>
+                    <div className="space-y-3">
+                      <div 
+                        onClick={() => copyToClipboard("japaneseName", productInfo.japaneseName)}
+                        className="group cursor-pointer relative"
+                      >
+                        <h3 className={`text-2xl font-bold tracking-tight leading-tight transition-all group-hover:opacity-70 ${theme === 'dark' ? 'text-white' : 'text-neutral-900'}`}>
+                          {productInfo.japaneseName}
+                        </h3>
+                        {copiedStates["japaneseName"] && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="absolute -top-6 left-0 px-2 py-0.5 rounded bg-indigo-500 text-[9px] font-bold text-white uppercase tracking-widest"
+                          >
+                            Copied
+                          </motion.div>
+                        )}
+                      </div>
+                      
+                      <div 
+                        onClick={() => copyToClipboard("englishName", productInfo.englishName)}
+                        className="group cursor-pointer relative"
+                      >
+                        <h4 className={`text-sm font-medium tracking-wide transition-all group-hover:opacity-70 ${theme === 'dark' ? 'text-white/40' : 'text-neutral-400'}`}>
+                          {productInfo.englishName}
+                        </h4>
+                        {copiedStates["englishName"] && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="absolute -top-6 left-0 px-2 py-0.5 rounded bg-indigo-500 text-[9px] font-bold text-white uppercase tracking-widest"
+                          >
+                            Copied
+                          </motion.div>
+                        )}
+                      </div>
                     </div>
                     {inputValue.startsWith("http") && (
                       <a
