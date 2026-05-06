@@ -398,10 +398,16 @@ export default function App() {
         const now = Date.now();
         const isCacheValid = cachedRate && cachedTimestamp && (now - parseInt(cachedTimestamp)) < CACHE_DURATION;
         
-        const rateToUse: number | null = isCacheValid ? parseFloat(cachedRate!) : null;
+        // Start fetching the exchange rate in the background if not cached
+        const ratePromise = isCacheValid 
+          ? Promise.resolve(parseFloat(cachedRate!)) 
+          : fetchMarketRate();
+
         const isUrl = trimmedInput.startsWith("http");
         setProgressMessage(isUrl ? "Analyzing product page..." : "Searching product info...");
         
+        // If we have a cached rate, we can provide it to the AI to help with its internal math
+        const rateToUse: number | null = isCacheValid ? parseFloat(cachedRate!) : null;
         const rateInstruction = rateToUse 
           ? `The current USD/JPY exchange rate is ${rateToUse}.` 
           : `Find the current USD/JPY market exchange rate and use it for calculations.`;
@@ -468,8 +474,18 @@ export default function App() {
         })();
 
         let response: any;
+        let finalLiveRate: number | null = null;
+
         try {
-          response = await Promise.race([aiPromise, timeoutPromise]);
+          // Wait for both the AI and the Exchange Rate concurrently
+          const [aiResponse, liveRate] = await Promise.race([
+            Promise.all([aiPromise, ratePromise]),
+            timeoutPromise as any
+          ]);
+          
+          response = aiResponse;
+          finalLiveRate = liveRate;
+
           const initialText = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
           if (!initialText) throw new Error("EMPTY_RESPONSE");
         } catch (err: any) {
@@ -569,7 +585,12 @@ export default function App() {
           setProgressMessage("Extraction complete!");
           const data = extractJson(text);
           
-          // Update cache if we fetched a new rate or if the cached one was used
+          // Prioritize the live rate we fetched in parallel for better accuracy
+          if (finalLiveRate) {
+            data.exchangeRate = finalLiveRate;
+          }
+          
+          // Update cache
           if (data.exchangeRate) {
             localStorage.setItem("usd_jpy_rate", data.exchangeRate.toString());
             localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
