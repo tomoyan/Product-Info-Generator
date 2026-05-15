@@ -434,6 +434,7 @@ export default function App() {
               }
               IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
               CRITICAL: Do not include the brand name in the English or Japanese product names.
+              MATERIAL: Focus on the main materials, listing up to two materials in Japanese.
               DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
               config: {
                 tools: [{ urlContext: {} }, { googleSearch: {} }],
@@ -451,7 +452,10 @@ export default function App() {
                       properties: {
                         price: { type: Type.STRING },
                         id: { type: Type.STRING },
-                        material: { type: Type.STRING },
+                        material: { 
+                          type: Type.STRING,
+                          description: "Focus on the main materials, listing up to two materials in Japanese."
+                        },
                         dimensions: { 
                           type: Type.STRING,
                           description: "Product dimensions in cm, prefixed with '約' (e.g., 約W10 x H20 cm)"
@@ -533,6 +537,7 @@ export default function App() {
                   }
                   IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
                   CRITICAL: Do not include the brand name in the English or Japanese product names.
+                  MATERIAL: Focus on the main materials, listing up to two materials in Japanese.
                   DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
                   config: {
                     tools: [{ googleSearch: {} }],
@@ -550,7 +555,10 @@ export default function App() {
                           properties: {
                             price: { type: Type.STRING },
                             id: { type: Type.STRING },
-                            material: { type: Type.STRING },
+                            material: { 
+                              type: Type.STRING,
+                              description: "Focus on the main materials, listing up to two materials in Japanese."
+                            },
                             dimensions: { 
                               type: Type.STRING,
                               description: "Product dimensions in cm, prefixed with '約' (e.g., 約W10 x H20 cm)"
