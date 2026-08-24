@@ -144,6 +144,7 @@ interface ProductInfo {
 }
 
 const CACHE_DURATION = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+const SHIPPING_COST = 7500;
 
 export default function App() {
   const [mode, setMode] = useState<'analyze' | 'translate'>('analyze');
@@ -433,7 +434,7 @@ export default function App() {
                 }
               }
               IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
-              MATERIAL: Focus on the main materials, listing up to two materials in Japanese.
+              MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe.
               DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
               config: {
                 tools: [{ urlContext: {} }, { googleSearch: {} }],
@@ -535,7 +536,7 @@ export default function App() {
                     }
                   }
                   IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
-                  MATERIAL: Focus on the main materials, listing up to two materials in Japanese.
+                  MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe.
                   DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
                   config: {
                     tools: [{ googleSearch: {} }],
@@ -639,7 +640,7 @@ export default function App() {
   const calculateRetailPrice = (usd: number, rate: number, discountPct: number = 0) => {
     const tax = 1.1; // 10%
     const spread = 10;
-    const shipping = 7500;
+    const shipping = SHIPPING_COST;
     const markup = 1.1; // 10%
     const fee = 1.05; // 5%
     
@@ -1159,19 +1160,26 @@ export default function App() {
                     </div>
                   </div>
                   
-                  <div className={`mt-8 pt-5 border-t flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] ${theme === 'dark' ? 'border-white/[0.05] text-white/20' : 'border-black/[0.05] text-slate-400'}`}>
-                    <div className="flex items-center gap-2">
-                      <span>Market Rate</span>
-                      <button 
-                        onClick={refreshExchangeRate}
-                        disabled={loading}
-                        className="hover:text-blue-500 transition-colors disabled:opacity-50 p-1"
-                        title="Refresh exchange rate"
-                      >
-                        <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-                      </button>
+                  <div className={`mt-8 pt-5 border-t flex flex-col gap-3 text-[10px] font-bold uppercase tracking-[0.2em] ${theme === 'dark' ? 'border-white/[0.05] text-white/20' : 'border-black/[0.05] text-slate-400'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span>Market Rate</span>
+                        <button 
+                          onClick={refreshExchangeRate}
+                          disabled={loading}
+                          className="hover:text-blue-500 transition-colors disabled:opacity-50 p-1"
+                          title="Refresh exchange rate"
+                        >
+                          <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+                        </button>
+                      </div>
+                      <span className={theme === 'dark' ? 'text-white/40' : 'text-neutral-600'}>¥{productInfo.exchangeRate} / USD</span>
                     </div>
-                    <span className={theme === 'dark' ? 'text-white/40' : 'text-neutral-600'}>¥{productInfo.exchangeRate} / USD</span>
+
+                    <div className="flex items-center justify-between">
+                      <span>Shipping Cost</span>
+                      <span className={theme === 'dark' ? 'text-white/40' : 'text-neutral-600'}>¥{SHIPPING_COST.toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
               </div>
