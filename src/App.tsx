@@ -672,6 +672,7 @@ export default function App() {
   };
 
   const retailPriceJpy = productInfo ? calculateRetailPrice(manualUsdPrice, productInfo.exchangeRate, discount) : 0;
+  const convertedPriceJpy = productInfo ? Math.round(manualUsdPrice * productInfo.exchangeRate) : 0;
 
   return (
     <div className="min-h-screen flex flex-col font-sans relative overflow-hidden transition-colors duration-500">
@@ -1103,6 +1104,41 @@ export default function App() {
                               : 'border-black/[0.05] focus:border-blue-500/50 text-slate-900'
                           }`}
                         />
+                      </div>
+                    </div>
+
+                    {/* Conversion Price (USD to JPY) */}
+                    <div className={`p-5 rounded-2xl border backdrop-blur-md transition-all ${
+                      theme === 'dark' ? 'bg-white/[0.02] border-white/[0.05]' : 'bg-black/[0.02] border-black/[0.05]'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
+                          Conversion Price (JPY)
+                        </span>
+                        <button
+                          onClick={() => copyToClipboard("conversion", convertedPriceJpy)}
+                          className={`text-[10px] font-bold transition-colors uppercase tracking-widest ${
+                            copiedStates["conversion"]
+                              ? "text-blue-500 font-bold"
+                              : theme === 'dark' ? 'text-white/30 hover:text-blue-500' : 'text-slate-400 hover:text-blue-600'
+                          }`}
+                        >
+                          {copiedStates["conversion"] ? "COPIED" : "COPY"}
+                        </button>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <div 
+                          onClick={() => copyToClipboard("conversion", convertedPriceJpy)}
+                          className="cursor-pointer group flex items-baseline gap-2"
+                          title="Click to copy conversion price"
+                        >
+                          <span className={`text-2xl font-bold tracking-tight transition-opacity group-hover:opacity-80 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                            ¥{convertedPriceJpy.toLocaleString()}
+                          </span>
+                        </div>
+                        <span className={`text-[11px] font-medium tracking-wide ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
+                          ${manualUsdPrice} × ¥{productInfo.exchangeRate}
+                        </span>
                       </div>
                     </div>
 
