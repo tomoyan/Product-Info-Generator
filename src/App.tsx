@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText, RefreshCw, Sun, Moon } from "lucide-react";
+import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText, RefreshCw, Sun, Moon, Eye, EyeOff } from "lucide-react";
 
 const getAiKey = () => {
   const key = process.env.GEMINI_API_KEY;
@@ -158,6 +158,7 @@ export default function App() {
   const [discount, setDiscount] = useState<number>(0);
   const [manualUsdPrice, setManualUsdPrice] = useState<number>(0);
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
+  const [showReferenceNote, setShowReferenceNote] = useState<boolean>(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     if (typeof window !== 'undefined') {
       return (localStorage.getItem('theme') as 'dark' | 'light') || 'light';
@@ -1139,6 +1140,69 @@ export default function App() {
                         <span className={`text-[11px] font-medium tracking-wide ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
                           ${manualUsdPrice} × ¥{productInfo.exchangeRate}
                         </span>
+                      </div>
+
+                      <div className={`mt-3 pt-3 border-t transition-all ${
+                        theme === 'dark' ? 'border-white/[0.05]' : 'border-black/[0.05]'
+                      }`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowReferenceNote(prev => !prev)}
+                            className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer ${
+                              theme === 'dark' ? 'text-white/40 hover:text-white/80' : 'text-slate-400 hover:text-slate-700'
+                            }`}
+                            title={showReferenceNote ? "Hide reference note text" : "Show reference note text"}
+                          >
+                            {showReferenceNote ? <EyeOff size={12} /> : <Eye size={12} />}
+                            <span>{showReferenceNote ? "Hide Note" : "Reference Note"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard("conversion_note", `※上記参考価格は現地参考価格を1$＝${productInfo.exchangeRate}円で換算したものです。`)}
+                            className={`text-[10px] font-bold transition-colors uppercase tracking-widest flex items-center gap-1 cursor-pointer ${
+                              copiedStates["conversion_note"]
+                                ? "text-blue-500 font-bold"
+                                : theme === 'dark' ? 'text-white/40 hover:text-blue-500' : 'text-slate-400 hover:text-blue-600'
+                            }`}
+                            title="Copy reference note text"
+                          >
+                            {copiedStates["conversion_note"] ? (
+                              <>
+                                <Check size={12} />
+                                COPIED
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={12} />
+                                COPY
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        {showReferenceNote && (
+                          <div
+                            onClick={() => copyToClipboard("conversion_note", `※上記参考価格は現地参考価格を1$＝${productInfo.exchangeRate}円で換算したものです。`)}
+                            className={`mt-2.5 p-2.5 rounded-xl cursor-pointer group transition-all select-none border ${
+                              theme === 'dark'
+                                ? 'bg-white/[0.02] border-white/[0.05] hover:border-white/10'
+                                : 'bg-black/[0.02] border-black/[0.05] hover:border-black/10'
+                            }`}
+                            title="Click on text to copy"
+                          >
+                            <p className={`text-xs leading-relaxed transition-colors ${
+                              copiedStates["conversion_note"]
+                                ? "text-blue-500 font-medium"
+                                : theme === 'dark'
+                                ? "text-white/60 group-hover:text-white/90"
+                                : "text-slate-600 group-hover:text-slate-900"
+                            }`}>
+                              ※上記参考価格は現地参考価格を1$＝{productInfo.exchangeRate}円で換算したものです。
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
