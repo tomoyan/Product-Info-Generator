@@ -1108,6 +1108,59 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* JPY Result */}
+                    <div className={`p-6 rounded-3xl border space-y-6 backdrop-blur-md ${
+                      theme === 'dark' ? 'bg-white/[0.02] border-white/[0.05]' : 'bg-black/[0.02] border-black/[0.05]'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Retail Price (JPY)</span>
+                          <div className="flex items-baseline gap-3">
+                            <span className={`text-4xl font-bold tracking-tight transition-all duration-500 ${
+                              discount === 20 ? (theme === 'dark' ? "text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.3)]" : "text-cyan-600") :
+                              discount === 10 ? (theme === 'dark' ? "text-blue-400 drop-shadow-[0_0_15px_rgba(96,165,250,0.3)]" : "text-blue-600") :
+                              discount === -10 ? (theme === 'dark' ? "text-orange-400 drop-shadow-[0_0_15px_rgba(251,146,60,0.3)]" : "text-orange-600") :
+                              discount === -20 ? (theme === 'dark' ? "text-rose-400 drop-shadow-[0_0_15px_rgba(251,113,133,0.3)]" : "text-rose-600") :
+                              (theme === 'dark' ? "text-white" : "text-slate-900")
+                            }`}>
+                              ¥{retailPriceJpy.toLocaleString()}
+                            </span>
+                            {discount !== 0 && (
+                              <span className={`text-xs font-bold line-through ${theme === 'dark' ? 'text-white/10' : 'text-slate-300'}`}>
+                                ¥{calculateRetailPrice(manualUsdPrice, productInfo!.exchangeRate, 0).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => copyToClipboard("jpy", retailPriceJpy)}
+                          className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 hover:scale-110 active:scale-95 transition-all"
+                        >
+                          {copiedStates["jpy"] ? <Check size={22} /> : <JapaneseYen size={22} />}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-5 gap-1 pt-2">
+                        {[
+                          { label: "20% OFF", val: 20, color: theme === 'dark' ? "hover:bg-cyan-500/10 hover:text-cyan-400" : "hover:bg-cyan-50 hover:text-cyan-600", active: "bg-cyan-600 text-white shadow-lg shadow-cyan-600/20" },
+                          { label: "10% OFF", val: 10, color: theme === 'dark' ? "hover:bg-blue-500/10 hover:text-blue-400" : "hover:bg-blue-50 hover:text-blue-600", active: "bg-blue-600 text-white shadow-lg shadow-blue-600/20" },
+                          { label: "Normal", val: 0, color: theme === 'dark' ? "hover:bg-white/10" : "hover:bg-black/10", active: theme === 'dark' ? "bg-white text-black shadow-lg shadow-white/10" : "bg-slate-900 text-white shadow-lg shadow-slate-900/10" },
+                          { label: "10% UP", val: -10, color: theme === 'dark' ? "hover:bg-orange-500/10 hover:text-orange-400" : "hover:bg-orange-50 hover:text-orange-600", active: "bg-orange-500 text-white shadow-orange-500/20" },
+                          { label: "20% UP", val: -20, color: theme === 'dark' ? "hover:bg-rose-500/10 hover:text-rose-400" : "hover:bg-rose-50 hover:text-rose-600", active: "bg-rose-500 text-white shadow-lg shadow-rose-500/20" },
+                        ].map((btn) => (
+                          <button
+                            key={btn.label}
+                            onClick={() => setDiscount(btn.val)}
+                            className={`py-2 rounded-lg text-[8px] font-black uppercase tracking-tighter transition-all border border-transparent whitespace-nowrap flex items-center justify-center ${
+                              discount === btn.val ? btn.active : `${theme === 'dark' ? 'bg-white/[0.03] border-white/[0.05] text-white/40' : 'bg-black/[0.03] border-black/[0.05] text-slate-400'} ${btn.color}`
+                            }`}
+                          >
+                            {btn.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     {/* Conversion Price (USD to JPY) */}
                     <div className={`p-5 rounded-2xl border backdrop-blur-md transition-all ${
                       theme === 'dark' ? 'bg-white/[0.02] border-white/[0.05]' : 'bg-black/[0.02] border-black/[0.05]'
@@ -1203,59 +1256,6 @@ export default function App() {
                             </p>
                           </div>
                         )}
-                      </div>
-                    </div>
-
-                    {/* JPY Result */}
-                    <div className={`p-6 rounded-3xl border space-y-6 backdrop-blur-md ${
-                      theme === 'dark' ? 'bg-white/[0.02] border-white/[0.05]' : 'bg-black/[0.02] border-black/[0.05]'
-                    }`}>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                          <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Retail Price (JPY)</span>
-                          <div className="flex items-baseline gap-3">
-                            <span className={`text-4xl font-bold tracking-tight transition-all duration-500 ${
-                              discount === 20 ? (theme === 'dark' ? "text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.3)]" : "text-cyan-600") :
-                              discount === 10 ? (theme === 'dark' ? "text-blue-400 drop-shadow-[0_0_15px_rgba(96,165,250,0.3)]" : "text-blue-600") :
-                              discount === -10 ? (theme === 'dark' ? "text-orange-400 drop-shadow-[0_0_15px_rgba(251,146,60,0.3)]" : "text-orange-600") :
-                              discount === -20 ? (theme === 'dark' ? "text-rose-400 drop-shadow-[0_0_15px_rgba(251,113,133,0.3)]" : "text-rose-600") :
-                              (theme === 'dark' ? "text-white" : "text-slate-900")
-                            }`}>
-                              ¥{retailPriceJpy.toLocaleString()}
-                            </span>
-                            {discount !== 0 && (
-                              <span className={`text-xs font-bold line-through ${theme === 'dark' ? 'text-white/10' : 'text-slate-300'}`}>
-                                ¥{calculateRetailPrice(manualUsdPrice, productInfo!.exchangeRate, 0).toLocaleString()}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => copyToClipboard("jpy", retailPriceJpy)}
-                          className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 hover:scale-110 active:scale-95 transition-all"
-                        >
-                          {copiedStates["jpy"] ? <Check size={22} /> : <JapaneseYen size={22} />}
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-5 gap-1 pt-2">
-                        {[
-                          { label: "20% OFF", val: 20, color: theme === 'dark' ? "hover:bg-cyan-500/10 hover:text-cyan-400" : "hover:bg-cyan-50 hover:text-cyan-600", active: "bg-cyan-600 text-white shadow-lg shadow-cyan-600/20" },
-                          { label: "10% OFF", val: 10, color: theme === 'dark' ? "hover:bg-blue-500/10 hover:text-blue-400" : "hover:bg-blue-50 hover:text-blue-600", active: "bg-blue-600 text-white shadow-lg shadow-blue-600/20" },
-                          { label: "Normal", val: 0, color: theme === 'dark' ? "hover:bg-white/10" : "hover:bg-black/10", active: theme === 'dark' ? "bg-white text-black shadow-lg shadow-white/10" : "bg-slate-900 text-white shadow-lg shadow-slate-900/10" },
-                          { label: "10% UP", val: -10, color: theme === 'dark' ? "hover:bg-orange-500/10 hover:text-orange-400" : "hover:bg-orange-50 hover:text-orange-600", active: "bg-orange-500 text-white shadow-lg shadow-orange-500/20" },
-                          { label: "20% UP", val: -20, color: theme === 'dark' ? "hover:bg-rose-500/10 hover:text-rose-400" : "hover:bg-rose-50 hover:text-rose-600", active: "bg-rose-500 text-white shadow-lg shadow-rose-500/20" },
-                        ].map((btn) => (
-                          <button
-                            key={btn.label}
-                            onClick={() => setDiscount(btn.val)}
-                            className={`py-2 rounded-lg text-[8px] font-black uppercase tracking-tighter transition-all border border-transparent whitespace-nowrap flex items-center justify-center ${
-                              discount === btn.val ? btn.active : `${theme === 'dark' ? 'bg-white/[0.03] border-white/[0.05] text-white/40' : 'bg-black/[0.03] border-black/[0.05] text-slate-400'} ${btn.color}`
-                            }`}
-                          >
-                            {btn.label}
-                          </button>
-                        ))}
                       </div>
                     </div>
                   </div>
