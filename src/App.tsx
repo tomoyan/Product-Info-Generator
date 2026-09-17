@@ -143,6 +143,35 @@ interface ProductInfo {
   };
 }
 
+const roundUpDimensions = (raw?: string): string => {
+  if (!raw) return "";
+  let text = raw.trim();
+
+  // If text does not contain cm/センチ and contains inch marks (e.g. 10.5" or 10.5 in or 10.5 inches),
+  // convert inches to cm (1 in = 2.54 cm) and round up
+  if (!/cm|センチ/i.test(text) && (/["”″]|(?:in|inch|inches)\b/i.test(text))) {
+    text = text.replace(/(\d+(?:\.\d+)?)\s*(?:["”″]|(?:in|inch|inches)\b)/gi, (_, val) => {
+      const num = parseFloat(val);
+      if (isNaN(num)) return _;
+      const cmVal = Math.ceil(num * 2.54);
+      return `${cmVal}cm`;
+    });
+  }
+
+  // Round up any decimal numbers to whole numbers (e.g., 10.2 -> 11, 25.4 -> 26, 0.5 -> 1)
+  text = text.replace(/(\d+)\.(\d+)/g, (match) => {
+    const num = parseFloat(match);
+    return isNaN(num) ? match : Math.ceil(num).toString();
+  });
+
+  // Ensure "約" is added in front if not already present
+  if (text && !text.startsWith("約")) {
+    text = `約${text}`;
+  }
+
+  return text;
+};
+
 const CACHE_DURATION = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
 const SHIPPING_COST = 7500;
 
@@ -429,14 +458,14 @@ export default function App() {
                   "price": "$12.00",
                   "id": "SKU if available",
                   "material": "Material in Japanese",
-                  "dimensions": "Dimensions in cm in Japanese",
+                  "dimensions": "Dimensions in cm in Japanese with all numbers rounded up to whole numbers",
                   "color": "Color in Japanese",
                   "description": "Short 1-sentence summary in Japanese"
                 }
               }
               IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
               MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe.
-              DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
+              DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm).`,
               config: {
                 tools: [{ urlContext: {} }, { googleSearch: {} }],
                 responseMimeType: "application/json",
@@ -459,7 +488,7 @@ export default function App() {
                         },
                         dimensions: { 
                           type: Type.STRING,
-                          description: "Product dimensions in cm, prefixed with '約' (e.g., 約W10 x H20 cm)"
+                          description: "Product dimensions in cm with all numbers rounded up to whole numbers (no decimals), prefixed with '約' (e.g., 約W11 x H21 cm)"
                         },
                         color: { type: Type.STRING },
                         description: { type: Type.STRING }
@@ -531,14 +560,14 @@ export default function App() {
                       "price": "$12.00",
                       "id": "SKU if available",
                       "material": "Material in Japanese",
-                      "dimensions": "Dimensions in cm in Japanese",
+                      "dimensions": "Dimensions in cm in Japanese with all numbers rounded up to whole numbers",
                       "color": "Color in Japanese",
                       "description": "Short 1-sentence summary in Japanese"
                     }
                   }
                   IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
                   MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe.
-                  DIMENSIONS: Be extra careful and accurate with dimensions. Always add "約" in front of the dimensions in the "dimensions" field.`,
+                  DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm).`,
                   config: {
                     tools: [{ googleSearch: {} }],
                     responseMimeType: "application/json",
@@ -561,7 +590,7 @@ export default function App() {
                             },
                             dimensions: { 
                               type: Type.STRING,
-                              description: "Product dimensions in cm, prefixed with '約' (e.g., 約W10 x H20 cm)"
+                              description: "Product dimensions in cm with all numbers rounded up to whole numbers (no decimals), prefixed with '約' (e.g., 約W11 x H21 cm)"
                             },
                             color: { type: Type.STRING },
                             description: { type: Type.STRING }
@@ -596,6 +625,11 @@ export default function App() {
           // Prioritize the live rate we fetched in parallel for better accuracy
           if (finalLiveRate) {
             data.exchangeRate = finalLiveRate;
+          }
+
+          // Ensure dimensions are rounded up to whole numbers in cm with 約
+          if (data?.details?.dimensions) {
+            data.details.dimensions = roundUpDimensions(data.details.dimensions);
           }
           
           // Update cache
@@ -1001,7 +1035,7 @@ export default function App() {
                       { label: "Color", value: productInfo.details.color, icon: Palette, key: "color" },
                       { label: "Product ID", value: productInfo.details.id, icon: Tag, key: "id" },
                       { label: "Material", value: productInfo.details.material, icon: Layers, key: "material" },
-                      { label: "Dimensions", value: productInfo.details.dimensions, icon: Ruler, key: "dimensions" },
+                      { label: "Dimensions", value: productInfo.details.dimensions ? roundUpDimensions(productInfo.details.dimensions) : undefined, icon: Ruler, key: "dimensions" },
                     ].map((item) => item.value && (
                       <button
                         key={item.key}
