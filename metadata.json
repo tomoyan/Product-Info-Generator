@@ -1,5 +1,8 @@
 {
   "name": "Pricing Analysis",
   "description": "AI-powered product extractor that converts US store links into detailed Japanese retail listings with real-time USD-to-JPY price calculations.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

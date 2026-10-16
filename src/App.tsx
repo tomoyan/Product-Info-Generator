@@ -3,129 +3,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText, RefreshCw, Sun, Moon, Eye, EyeOff } from "lucide-react";
-
-const getAiKey = () => {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key || key === "your_api_key_here") {
-    console.warn("GEMINI_API_KEY is not set or is using the placeholder value.");
-  }
-  return key || "";
-};
-
-const ai = new GoogleGenAI({ apiKey: getAiKey() });
-
-const extractJson = (text: string) => {
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    const match = text.match(/```json\n([\s\S]*?)\n```/) || text.match(/```([\s\S]*?)```/);
-    if (match) {
-      try {
-        return JSON.parse(match[1].trim());
-      } catch (e2) {
-        const start = text.indexOf('{');
-        const end = text.lastIndexOf('}');
-        if (start !== -1 && end !== -1) {
-          return JSON.parse(text.substring(start, end + 1));
-        }
-      }
-    } else {
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      if (start !== -1 && end !== -1) {
-        return JSON.parse(text.substring(start, end + 1));
-      }
-    }
-    throw new Error("Failed to parse JSON from AI response");
-  }
-};
-
-const withRetry = async <T extends unknown>(
-  fn: () => Promise<T>,
-  retries = 3,
-  baseDelay = 1000,
-  onRetry?: (attempt: number, error: any) => void
-): Promise<T> => {
-  let lastError: any;
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      if (i < retries - 1) {
-        const delay = baseDelay * Math.pow(2, i);
-        if (onRetry) onRetry(i + 1, error);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-  }
-  throw lastError;
-};
 
 const fetchMarketRate = async (
   setProgressMsg?: (msg: string) => void
 ): Promise<number> => {
+  if (setProgressMsg) setProgressMsg("Fetching market rate...");
   const timeoutPromise = new Promise<never>((_, reject) => 
-    setTimeout(() => reject(new Error("TIMEOUT")), 90000)
+    setTimeout(() => reject(new Error("TIMEOUT")), 30000)
   );
 
-  const fetchFromLocalApi = async () => {
+  const fetchPromise = async () => {
     const response = await fetch("/api/exchange-rate");
-    if (!response.ok) throw new Error(`Local API error: ${response.status}`);
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
     const data = await response.json();
-    if (data?.exchangeRate) return data.exchangeRate as number;
-    throw new Error("Invalid local API response");
+    if (typeof data?.exchangeRate === "number") return data.exchangeRate;
+    throw new Error("Invalid exchange rate format");
   };
 
-  const fetchFromAi = async () => {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: "Find the current USD to JPY market exchange rate. Return the result as a JSON object with a single key 'exchangeRate' and the numeric value.",
-        config: {
-          tools: [{ googleSearch: {} }],
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              exchangeRate: { type: Type.NUMBER }
-            },
-            required: ["exchangeRate"]
-          }
-        },
-      });
-      const text = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
-      if (!text) throw new Error("Empty AI response from Gemini");
-      const data = extractJson(text);
-      if (typeof data.exchangeRate === 'number') return data.exchangeRate;
-      throw new Error("Invalid AI format from Gemini");
-    } catch (err: any) {
-      console.error("Gemini API Error (Exchange Rate):", err);
-      throw new Error(`Gemini API Error: ${err.message || "Unknown error"}`);
-    }
-  };
-
-  if (setProgressMsg) setProgressMsg("Fetching market rate...");
-
-  try {
-    // Race the local API (which handles multiple sources server-side) against the AI fallback.
-    // The local API will be near-instant as it avoids CORS and browser overhead.
-    return await Promise.race([
-      Promise.any([
-        fetchFromLocalApi(),
-        withRetry(fetchFromAi, 0) // No retries for AI fallback to keep it fast
-      ]),
-      timeoutPromise
-    ]);
-  } catch (err) {
-    console.error("All exchange rate sources failed:", err);
-    throw new Error("Could not fetch live exchange rate.");
-  }
+  return await Promise.race([fetchPromise(), timeoutPromise]);
 };
 
 interface ProductInfo {
@@ -175,11 +73,35 @@ const roundUpDimensions = (raw?: string): string => {
 const CACHE_DURATION = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
 const SHIPPING_COST = 7500;
 
+const cleanErrorMessage = (raw: string): string => {
+  if (!raw) return "An unexpected error occurred. Please try again.";
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*"error"[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed?.error?.message) {
+        if (parsed.error.code === 503 || parsed.error.status === "UNAVAILABLE" || parsed.error.message.includes("high demand")) {
+          return "The AI model is currently experiencing temporary high demand. Please click Retry in a few moments, or try entering the product name directly.";
+        }
+        if (parsed.error.code === 429 || parsed.error.status === "RESOURCE_EXHAUSTED") {
+          return "Rate limit reached. Please wait a moment and click Retry.";
+        }
+        return parsed.error.message;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  if (raw.includes("503") || raw.includes("high demand") || raw.includes("UNAVAILABLE")) {
+    return "The AI model is currently experiencing temporary high demand. Please click Retry below in a few moments, or try entering the product name directly.";
+  }
+  return raw;
+};
+
 export default function App() {
   const [mode, setMode] = useState<'analyze' | 'translate'>('analyze');
   const [translationResult, setTranslationResult] = useState<{ name?: string; summary?: string } | null>(null);
   const [inputValue, setInputValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
@@ -195,11 +117,6 @@ export default function App() {
     }
     return 'light';
   });
-
-  useEffect(() => {
-    // Automatically focus the input when the app loads
-    inputRef.current?.focus();
-  }, []);
 
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
@@ -261,43 +178,21 @@ export default function App() {
       );
 
       const aiPromise = (async () => {
-        try {
-          const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: `Translate the following product information into professional Japanese.
-            If it's a short product name, provide the Japanese name in "translatedName".
-            If it's a longer description, provide a simple, professional 1-2 sentence summary in Japanese in "translatedSummary".
-            
-            Input: ${trimmedInput}
-            
-            Return the result as a JSON object:
-            {
-              "translatedName": "Japanese name",
-              "translatedSummary": "Japanese summary"
-            }`,
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  translatedName: { type: Type.STRING },
-                  translatedSummary: { type: Type.STRING }
-                }
-              }
-            }
-          });
-          return response;
-        } catch (err: any) {
-          console.error("Gemini API Error (Translation):", err);
-          throw new Error(`Gemini API Error: ${err.message || "Unknown error"}`);
+        const res = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: trimmedInput }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || `Translation error: ${res.status}`);
         }
+        return json;
       })();
 
-      const response: any = await Promise.race([aiPromise, timeoutPromise]);
-      const text = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
+      const data: any = await Promise.race([aiPromise, timeoutPromise]);
       
-      if (text) {
-        const data = extractJson(text);
+      if (data) {
         setTranslationResult({
           name: data.translatedName,
           summary: data.translatedSummary
@@ -312,7 +207,7 @@ export default function App() {
       if (err.message === "TIMEOUT") {
         setError("The translation timed out. Please try with a shorter text or try again.");
       } else {
-        setError(err.message || "An error occurred during translation.");
+        setError(cleanErrorMessage(err.message || "An error occurred during translation."));
       }
     } finally {
       clearInterval(progressInterval);
@@ -449,227 +344,61 @@ export default function App() {
           ? `The current USD/JPY exchange rate is ${rateToUse}.` 
           : `Find the current USD/JPY market exchange rate and use it for calculations.`;
 
-        const aiPromise = (async () => {
-          try {
-            const response = await ai.models.generateContent({
-              model: "gemini-3-flash-preview",
-              contents: `Extract product info from: ${trimmedInput}. ${rateInstruction}
-              Return the result as a JSON object with the following structure:
-              {
-                "englishName": "Product name in English",
-                "japaneseName": "Product name in Japanese",
-                "usdPriceValue": 12.00,
-                "exchangeRate": 150.5,
-                "details": {
-                  "price": "$12.00",
-                  "id": "SKU if available",
-                  "material": "Material in Japanese",
-                  "dimensions": "Dimensions in cm in Japanese with all numbers rounded up to whole numbers",
-                  "color": "Color in Japanese",
-                  "description": "Short 1-sentence summary in Japanese"
-                }
-              }
-              IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
-              MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe.
-              DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm).`,
-              config: {
-                tools: [{ urlContext: {} }, { googleSearch: {} }],
-                responseMimeType: "application/json",
-                thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-                responseSchema: {
-                  type: Type.OBJECT,
-                  properties: {
-                    englishName: { type: Type.STRING },
-                    japaneseName: { type: Type.STRING },
-                    usdPriceValue: { type: Type.NUMBER },
-                    exchangeRate: { type: Type.NUMBER },
-                    details: {
-                      type: Type.OBJECT,
-                      properties: {
-                        price: { type: Type.STRING },
-                        id: { type: Type.STRING },
-                        material: { 
-                          type: Type.STRING,
-                          description: "Focus on the main materials, listing up to two materials in Japanese."
-                        },
-                        dimensions: { 
-                          type: Type.STRING,
-                          description: "Product dimensions in cm with all numbers rounded up to whole numbers (no decimals), prefixed with '約' (e.g., 約W11 x H21 cm)"
-                        },
-                        color: { type: Type.STRING },
-                        description: { type: Type.STRING }
-                      },
-                      required: ["price", "description"]
-                    }
-                  },
-                  required: ["englishName", "japaneseName", "usdPriceValue", "exchangeRate", "details"]
-                }
-              },
-            });
-            return response;
-          } catch (err: any) {
-            console.error("Gemini API Error (Product Analysis):", err);
-            throw new Error(`Gemini API Error: ${err.message || "Unknown error"}`);
+        const analyzePromise = (async () => {
+          const res = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input: trimmedInput, rateInstruction }),
+          });
+          const json = await res.json();
+          if (!res.ok) {
+            throw new Error(json.error || `Server error: ${res.status}`);
           }
+          return json.data;
         })();
 
-        let response: any;
         let finalLiveRate: number | null = null;
+        let productData: any = null;
 
-        try {
-          // Wait for both the AI and the Exchange Rate concurrently
-          const [aiResponse, liveRate] = await Promise.race([
-            Promise.all([aiPromise, ratePromise]),
-            timeoutPromise as any
-          ]);
-          
-          response = aiResponse;
-          finalLiveRate = liveRate;
+        const [aiData, liveRate] = await Promise.race([
+          Promise.all([analyzePromise, ratePromise]),
+          timeoutPromise as any
+        ]);
 
-          const initialText = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
-          if (!initialText) throw new Error("EMPTY_RESPONSE");
-        } catch (err: any) {
-          const errorMsg = err?.message || "";
-          // Check for the specific "page too large" error, generic invalid argument, or empty response
-          if (errorMsg.includes("size() > 2621440") || errorMsg.includes("INVALID_ARGUMENT") || errorMsg === "EMPTY_RESPONSE") {
-            setProgressMessage(errorMsg === "EMPTY_RESPONSE" 
-              ? "No data found on page. Falling back to search..." 
-              : "Page too large for direct analysis. Falling back to search...");
-            
-            // Fallback: Try again using googleSearch instead of urlContext
-            const fallbackAiPromise = (async () => {
-              try {
-                // Try to extract some keywords from the URL to help the search
-                const urlKeywords = trimmedInput
-                  .split('/')
-                  .pop()
-                  ?.replace(/[-_]/g, ' ')
-                  ?.replace(/\.html?$/i, '') || "";
+        productData = aiData;
+        finalLiveRate = liveRate;
 
-                const response = await ai.models.generateContent({
-                  model: "gemini-3-flash-preview",
-                  contents: `The direct analysis of this URL failed: ${trimmedInput}. 
-                  Potential keywords from URL: ${urlKeywords}.
-                  
-                  Please use Google Search to find the product details for this item. 
-                  Search for the product name, current USD price, and specifications (material, dimensions, color).
-                  
-                  ${rateInstruction}
-                  
-                  Return the result as a JSON object with the following structure:
-                  {
-                    "englishName": "Product name in English",
-                    "japaneseName": "Product name in Japanese",
-                    "usdPriceValue": 12.00,
-                    "exchangeRate": 150.5,
-                    "details": {
-                      "price": "$12.00",
-                      "id": "SKU if available",
-                      "material": "Material in Japanese",
-                      "dimensions": "Dimensions in cm in Japanese with all numbers rounded up to whole numbers",
-                      "color": "Color in Japanese",
-                      "description": "Short 1-sentence summary in Japanese"
-                    }
-                  }
-                  IMPORTANT: Do not use special characters or symbols like "®", "™", or similar in any of the text fields.
-                  MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe.
-                  DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm).`,
-                  config: {
-                    tools: [{ googleSearch: {} }],
-                    responseMimeType: "application/json",
-                    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-                    responseSchema: {
-                      type: Type.OBJECT,
-                      properties: {
-                        englishName: { type: Type.STRING },
-                        japaneseName: { type: Type.STRING },
-                        usdPriceValue: { type: Type.NUMBER },
-                        exchangeRate: { type: Type.NUMBER },
-                        details: {
-                          type: Type.OBJECT,
-                          properties: {
-                            price: { type: Type.STRING },
-                            id: { type: Type.STRING },
-                            material: { 
-                              type: Type.STRING,
-                              description: "Focus on the main materials, listing up to two materials in Japanese."
-                            },
-                            dimensions: { 
-                              type: Type.STRING,
-                              description: "Product dimensions in cm with all numbers rounded up to whole numbers (no decimals), prefixed with '約' (e.g., 約W11 x H21 cm)"
-                            },
-                            color: { type: Type.STRING },
-                            description: { type: Type.STRING }
-                          },
-                          required: ["price", "description"]
-                        }
-                      },
-                      required: ["englishName", "japaneseName", "usdPriceValue", "exchangeRate", "details"]
-                    }
-                  },
-                });
-                return response;
-              } catch (err: any) {
-                console.error("Gemini API Error (Fallback Analysis):", err);
-                throw new Error(`Gemini API Error: ${err.message || "Unknown error"}`);
-              }
-            })();
-            
-            response = await Promise.race([fallbackAiPromise, timeoutPromise]);
-          } else {
-            throw err;
-          }
-        }
-
-        const text = response?.text || (response?.candidates?.[0]?.content?.parts?.[0]?.text);
-        
-        if (text) {
+        if (productData) {
           setProgress(100);
           setProgressMessage("Extraction complete!");
-          const data = extractJson(text);
-          
+
           // Prioritize the live rate we fetched in parallel for better accuracy
           if (finalLiveRate) {
-            data.exchangeRate = finalLiveRate;
+            productData.exchangeRate = finalLiveRate;
           }
 
           // Ensure dimensions are rounded up to whole numbers in cm with 約
-          if (data?.details?.dimensions) {
-            data.details.dimensions = roundUpDimensions(data.details.dimensions);
+          if (productData?.details?.dimensions) {
+            productData.details.dimensions = roundUpDimensions(productData.details.dimensions);
           }
           
           // Update cache
-          if (data.exchangeRate) {
-            localStorage.setItem("usd_jpy_rate", data.exchangeRate.toString());
+          if (productData.exchangeRate) {
+            localStorage.setItem("usd_jpy_rate", productData.exchangeRate.toString());
             localStorage.setItem("usd_jpy_timestamp", Date.now().toString());
           }
 
-          setProductInfo(data);
-          setManualUsdPrice(data.usdPriceValue);
+          setProductInfo(productData);
+          setManualUsdPrice(productData.usdPriceValue);
         } else {
-          // Detailed error reporting for empty responses
-          const finishReason = response?.candidates?.[0]?.finishReason;
-          const safetyRatings = response?.candidates?.[0]?.safetyRatings;
-          const promptFeedback = response?.promptFeedback;
-          
-          console.error("Gemini empty response details:", { finishReason, safetyRatings, promptFeedback });
-          
-          if (finishReason === "SAFETY") {
-            throw new Error("The analysis was blocked by safety filters. This can happen if the product page contains restricted content or certain keywords.");
-          } else if (finishReason === "RECITATION") {
-            throw new Error("The analysis was blocked because it triggered copyright protections (recitation).");
-          } else if (finishReason === "OTHER") {
-            throw new Error("The analysis was interrupted by the AI provider. This might be a temporary service issue. Please try again.");
-          }
-          
-          throw new Error("No information could be extracted from this URL. The site might be blocking AI analysis or the page structure is too complex. \n\nTip: Try searching by the product name instead of using a direct link, or use the 'Translate' mode for basic translation.");
+          throw new Error("No information could be extracted from this URL or product. Please try searching by product name.");
         }
       } catch (err: any) {
         console.error(err);
         if (err.message === "TIMEOUT") {
           setError("The analysis timed out. This can happen with complex product pages or slow connections. Please try again or use the product name instead of a URL.");
         } else {
-          setError(err.message || "An error occurred while extracting information.");
+          setError(cleanErrorMessage(err.message || "An error occurred while extracting information."));
         }
       } finally {
         clearInterval(progressInterval);
@@ -753,50 +482,49 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl w-full mx-auto px-6 pt-6 pb-12 flex flex-col gap-6 relative z-10">
-        {/* Input Section with Mode Switcher moved to the side */}
-        <section className="w-full">
-          <div className="flex justify-end mb-2.5">
-            <div className={`p-0.5 rounded-xl border flex gap-1 backdrop-blur-md ${
-              theme === 'dark' ? 'bg-white/[0.03] border-white/[0.08]' : 'bg-black/[0.03] border-black/[0.05]'
-            }`}>
-              {[
-                { id: 'analyze', label: 'Product Analysis', icon: Search },
-                { id: 'translate', label: 'Translation', icon: Globe }
-              ].map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    setMode(m.id as any);
-                    setError(null);
-                    setProductInfo(null);
-                    setTranslationResult(null);
-                    inputRef.current?.focus();
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    mode === m.id
-                      ? theme === 'dark' 
-                        ? 'bg-white text-black shadow-sm' 
-                        : 'bg-slate-900 text-white shadow-sm'
-                      : theme === 'dark'
-                        ? 'text-white/50 hover:text-white hover:bg-white/[0.04]'
-                        : 'text-slate-500 hover:text-slate-800 hover:bg-black/[0.03]'
-                  }`}
-                >
-                  <m.icon size={12} />
-                  <span>{m.label}</span>
-                </button>
-              ))}
-            </div>
+      <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-10 flex flex-col gap-8 relative z-10">
+        {/* Mode Toggle */}
+        <div className="flex justify-center">
+          <div className={`p-1 rounded-2xl border flex gap-1 backdrop-blur-md ${
+            theme === 'dark' ? 'bg-white/[0.03] border-white/[0.08]' : 'bg-black/[0.03] border-black/[0.05]'
+          }`}>
+            {[
+              { id: 'analyze', label: 'Analyze', icon: Search },
+              { id: 'translate', label: 'Translate', icon: Globe }
+            ].map((m) => (
+              <button
+                key={m.id}
+                onClick={() => {
+                  setMode(m.id as any);
+                  setError(null);
+                  setProductInfo(null);
+                  setTranslationResult(null);
+                }}
+                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  mode === m.id
+                    ? theme === 'dark' 
+                      ? 'bg-white text-black shadow-lg shadow-white/10' 
+                      : 'bg-slate-900 text-white shadow-lg shadow-slate-900/10'
+                    : theme === 'dark'
+                      ? 'text-white/40 hover:text-white/60'
+                      : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <m.icon size={14} />
+                {m.label}
+              </button>
+            ))}
           </div>
+        </div>
+
+        {/* Input Section */}
+        <section className="w-full">
           <form onSubmit={handleAction} className="relative flex gap-3">
             <div className="relative flex-1 group">
               <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white/20 group-focus-within:text-blue-500 transition-colors">
                 {mode === 'analyze' ? <Search size={20} /> : <Globe size={20} />}
               </div>
               <input
-                ref={inputRef}
-                autoFocus
                 type="text"
                 placeholder={mode === 'analyze' ? "Paste URL or enter USD price..." : "Enter product name or description to translate..."}
                 value={inputValue}
@@ -881,16 +609,41 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              className={`p-5 border rounded-2xl text-xs font-medium flex flex-col gap-3 backdrop-blur-md ${
+              className={`p-5 border rounded-2xl text-xs font-medium flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 backdrop-blur-md ${
                 theme === 'dark' 
                   ? 'bg-rose-500/10 border-rose-500/20 text-rose-200' 
                   : 'bg-rose-50 border-rose-100 text-rose-700'
               }`}
             >
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
-                {error}
+              <div className="flex items-start gap-3">
+                <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse mt-1 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
+                <div className="space-y-1">
+                  <p className="font-semibold leading-relaxed">{error}</p>
+                  {inputValue.startsWith("http") && (
+                    <p className={`text-[11px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>
+                      Tip: If the website blocks automated scrapers, you can paste the product brand and model name directly.
+                    </p>
+                  )}
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (mode === 'analyze') {
+                    startAnalysis(inputValue);
+                  } else {
+                    startTranslation(inputValue);
+                  }
+                }}
+                disabled={loading || !inputValue.trim()}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 border cursor-pointer ${
+                  theme === 'dark'
+                    ? 'bg-white/10 hover:bg-white/20 text-white border-white/10'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white border-transparent'
+                }`}
+              >
+                Retry
+              </button>
             </motion.div>
           )}
 
