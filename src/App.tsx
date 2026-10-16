@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText, RefreshCw, Sun, Moon, Eye, EyeOff } from "lucide-react";
@@ -179,6 +179,7 @@ export default function App() {
   const [mode, setMode] = useState<'analyze' | 'translate'>('analyze');
   const [translationResult, setTranslationResult] = useState<{ name?: string; summary?: string } | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
@@ -194,6 +195,11 @@ export default function App() {
     }
     return 'light';
   });
+
+  useEffect(() => {
+    // Automatically focus the input when the app loads
+    inputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
@@ -747,49 +753,50 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-10 flex flex-col gap-8 relative z-10">
-        {/* Mode Toggle */}
-        <div className="flex justify-center">
-          <div className={`p-1 rounded-2xl border flex gap-1 backdrop-blur-md ${
-            theme === 'dark' ? 'bg-white/[0.03] border-white/[0.08]' : 'bg-black/[0.03] border-black/[0.05]'
-          }`}>
-            {[
-              { id: 'analyze', label: 'Analyze', icon: Search },
-              { id: 'translate', label: 'Translate', icon: Globe }
-            ].map((m) => (
-              <button
-                key={m.id}
-                onClick={() => {
-                  setMode(m.id as any);
-                  setError(null);
-                  setProductInfo(null);
-                  setTranslationResult(null);
-                }}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                  mode === m.id
-                    ? theme === 'dark' 
-                      ? 'bg-white text-black shadow-lg shadow-white/10' 
-                      : 'bg-slate-900 text-white shadow-lg shadow-slate-900/10'
-                    : theme === 'dark'
-                      ? 'text-white/40 hover:text-white/60'
-                      : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                <m.icon size={14} />
-                {m.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Input Section */}
+      <main className="flex-1 max-w-5xl w-full mx-auto px-6 pt-6 pb-12 flex flex-col gap-6 relative z-10">
+        {/* Input Section with Mode Switcher moved to the side */}
         <section className="w-full">
+          <div className="flex justify-end mb-2.5">
+            <div className={`p-0.5 rounded-xl border flex gap-1 backdrop-blur-md ${
+              theme === 'dark' ? 'bg-white/[0.03] border-white/[0.08]' : 'bg-black/[0.03] border-black/[0.05]'
+            }`}>
+              {[
+                { id: 'analyze', label: 'Product Analysis', icon: Search },
+                { id: 'translate', label: 'Translation', icon: Globe }
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    setMode(m.id as any);
+                    setError(null);
+                    setProductInfo(null);
+                    setTranslationResult(null);
+                    inputRef.current?.focus();
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    mode === m.id
+                      ? theme === 'dark' 
+                        ? 'bg-white text-black shadow-sm' 
+                        : 'bg-slate-900 text-white shadow-sm'
+                      : theme === 'dark'
+                        ? 'text-white/50 hover:text-white hover:bg-white/[0.04]'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-black/[0.03]'
+                  }`}
+                >
+                  <m.icon size={12} />
+                  <span>{m.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <form onSubmit={handleAction} className="relative flex gap-3">
             <div className="relative flex-1 group">
               <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white/20 group-focus-within:text-blue-500 transition-colors">
                 {mode === 'analyze' ? <Search size={20} /> : <Globe size={20} />}
               </div>
               <input
+                ref={inputRef}
+                autoFocus
                 type="text"
                 placeholder={mode === 'analyze' ? "Paste URL or enter USD price..." : "Enter product name or description to translate..."}
                 value={inputValue}
