@@ -1,102 +1,91 @@
-# Product Analyzer & JPY Pricing Tool
+# Analyzer — AI Product Extractor & JPY Pricing Tool (v2.0)
 
-A sophisticated, AI-powered web application designed to streamline the process of extracting product information from international websites and calculating localized retail prices for the Japanese market.
+A full-stack, AI-powered web application designed to extract product specifications from international retail URLs or product names, translate them into natural Japanese for e-commerce listings, and calculate localized Japanese Yen (JPY) retail and reference prices using live market exchange rates.
 
 ## 🚀 Overview
 
-This tool leverages the **Gemini 3 Flash** model to analyze product pages or search terms, extracting key specifications and translating them into professional Japanese. It automatically handles currency conversion with real-time market data and applies a specialized pricing formula tailored for import retail.
+**Analyzer** streamlines cross-border product listing workflows. Enter a product URL, brand/model name, or raw USD price, and the app automatically:
+1. Extracts key product specifications (English & Japanese names, Color, Product ID/SKU, Material, Dimensions, and a 3–4 sentence Japanese summary).
+2. Normalizes and rounds up product dimensions into whole centimeters (`約...cm`).
+3. Fetches live USD/JPY exchange rates and calculates both the **Retail Price (JPY)** and **Conversion Price (JPY)** with a ready-to-copy Japanese reference price note.
 
 ## ✨ Key Features
 
-### 1. Intelligent Data Extraction
-- **URL Analysis:** Paste any product URL, and the AI uses `urlContext` to "read" the page and extract details.
-- **Search Integration:** Enter a product name, and the AI uses `googleSearch` to find the most relevant information.
-- **Multilingual Output:** Automatically generates both English and Japanese product names and descriptions.
+### 1. Intelligent Product Extraction
+- **URL & Metadata Parsing:** Pre-fetches webpage metadata (`<title>`, OpenGraph tags, meta descriptions, and `application/ld+json` structured data) and combines it with Gemini AI analysis (`urlContext` and `googleSearch` fallback) to accurately extract product details even from complex retail sites.
+- **Product Name Lookup:** Enter any product brand and model name to extract specifications and current US retail pricing.
+- **Quick Price Mode:** Enter a numeric USD value directly (e.g., `250`) to immediately calculate JPY retail and conversion prices without running a full product lookup.
+- **Automatic Dimension Formatting:** Converts inch measurements into centimeters (`1 in = 2.54 cm`), rounds up all decimal values to the next whole number, and prefixes measurements with `約` (e.g., `約26cm × 15cm × 8cm`).
 
-### 2. Advanced Pricing Engine
-- **Real-time Exchange Rates:** Fetches the current USD/JPY market rate via AI-driven search.
-- **Smart Caching:** Exchange rates are cached locally for **12 hours** to ensure high performance and reduce API overhead.
-- **Custom Retail Formula:** Applies a comprehensive calculation:
-  - `(((USD × 1.1) × (Exchange Rate + 10)) + 7,000) × 1.1 × 1.05`
-  - **Formula Breakdown:**
-    - **Import Tax:** 10% (applied to USD price)
-    - **Exchange Spread:** ¥10 (added to market rate)
-    - **International Shipping:** ¥7,000 (flat rate)
-    - **Profit Markup:** 10%
-    - **Handling Fee:** 5%
-  - **Rounding:** The final price is rounded down to the nearest 10 (e.g., ¥12,345 → ¥12,340) for standard Japanese market pricing.
-- **Dynamic Adjustments:** Apply instant discounts (10%/20% OFF) or markups (10%/20% UP) to see adjusted JPY totals.
-- **Manual Overrides:** Fine-tune the extracted USD price to see immediate recalculations.
+### 2. Advanced JPY Pricing Engine
+- **Live USD/JPY Market Rates:** Fetches real-time USD to JPY exchange rates via financial market APIs (`open.er-api.com` / `frankfurter.app`) with AI fallback.
+- **12-Hour Smart Caching & Manual Refresh:** Exchange rates are cached in `localStorage` for 12 hours for instant load times and can be refreshed on demand via the refresh button.
+- **Custom Import Retail Formula:**
+  ```text
+  (((USD × 1.10) × (Exchange Rate + 10)) + 7,500) × 1.10 × 1.05
+  ```
+  - **Import Tax:** `10%` (`× 1.10` applied to USD price)
+  - **Exchange Spread:** `+ ¥10` added to the market USD/JPY rate
+  - **International Shipping:** `¥7,500` flat rate
+  - **Profit Markup:** `10%` (`× 1.10`)
+  - **Handling Fee:** `5%` (`× 1.05`)
+  - **Market Rounding:** Rounds down the final digit to the nearest `¥10` (e.g., `¥12,345` → `¥12,340`).
+- **Dynamic Price Adjustments:** Toggle between `20% OFF`, `10% OFF`, `Normal`, `10% UP`, and `20% UP` to preview discounted or marked-up retail prices.
+- **Editable USD Price:** Adjust the extracted USD price inline to recalculate all JPY figures in real time.
+- **Conversion Price & Reference Note:**
+  - Displays the direct **Conversion Price (JPY)** (`USD × Exchange Rate`).
+  - Includes a toggleable and one-click copyable Japanese reference note:
+    `※上記参考価格は現地参考価格を1$＝{ExchangeRate}円で換算したものです。`
 
-### 3. Productivity Tools
-- **One-Tap Copy:** Every extracted field (ID, Material, Dimensions, Color, Summary, Prices) has a dedicated copy-to-clipboard button.
-- **Progress Tracking:** A real-time progress bar with status messages keeps you informed during the multi-stage AI analysis.
-- **Quick Price Check:** Simply enter a numeric USD value for an instant conversion without full product analysis.
+### 3. Productivity & UI/UX
+- **One-Click Copy Everywhere:** Click any specification card, title, summary, price, or reference note to copy it directly to your clipboard with instant visual confirmation.
+- **Light & Dark Themes:** Switch seamlessly between Light and Dark modes (persisted in `localStorage`) with glassmorphic panels and animated ambient background orbs.
+- **Resilient AI Pipeline:** Built-in multi-model fallback (`gemini-3-flash-preview` and `gemini-2.5-flash`) with automatic retry and clear error recovery.
 
 ## 🛠 How It Works
 
-1.  **Input Phase:** The user provides a URL or product price.
-2.  **Rate Verification:** The app checks `localStorage` for a valid USD/JPY rate. If expired or missing, it triggers a lightweight AI call to fetch the latest market rate.
-3.  **AI Analysis:** 
-    - If a URL is provided, the model uses the `urlContext` tool to parse the specific page.
-    - If text is provided, the model uses `googleSearch` to find product details.
-4.  **Data Structuring:** The AI returns a strictly formatted JSON object containing all product specifications.
-5.  **Localization:** The app calculates the final JPY retail price using the internal formula and rounds the result for Japanese market standards (rounding down the last digit).
+1. **Input:** Paste a product URL, enter a product name, or type a USD amount into the search bar and click **Analyze**.
+2. **Exchange Rate Check:** The client checks `localStorage` for a cached USD/JPY rate (< 12 hours old) or requests a fresh rate from `GET /api/exchange-rate`.
+3. **Server-Side Extraction (`POST /api/analyze`):**
+   - If the input is a URL, the Express server pre-fetches HTML metadata and JSON-LD product data, then prompts Gemini to extract structured JSON specifications.
+   - Falls back to `urlContext` and `googleSearch` grounding if additional page context is required.
+4. **Calculation & Formatting:** The frontend normalizes dimensions into whole centimeters and computes the Retail Price (JPY) and Conversion Price (JPY).
 
 ## 🚀 Getting Started
 
-To run this application locally, follow these steps:
-
 ### 1. Prerequisites
-- **Node.js:** Ensure you have Node.js installed (v18 or higher recommended).
-- **Gemini API Key:** You will need a valid Gemini API key. You can get one from the [Google AI Studio](https://aistudio.google.com/).
+- **Node.js:** v18 or higher recommended.
+- **Gemini API Key:** Obtain an API key from [Google AI Studio](https://aistudio.google.com/).
 
 ### 2. Installation
-Clone the repository and install the dependencies:
 ```bash
-# Clone the repository (or download the source)
-# cd into the project directory
 npm install
 ```
 
 ### 3. Environment Configuration
-Create a `.env` file in the root of your project and add your Gemini API key:
+Create a `.env` file in the project root:
 ```env
 GEMINI_API_KEY=your_api_key_here
 ```
 
 ### 4. Run the Development Server
-Start the Vite development server:
+Start the full-stack Express + Vite server:
 ```bash
 npm run dev
 ```
 The application will be available at `http://localhost:3000`.
 
-### 5. Build for Production
-To create a production-ready build:
+### 5. Build & Run for Production
 ```bash
 npm run build
+npm start
 ```
-The output will be in the `dist/` directory.
-
-## 🎨 UI/UX Design
-
-The application follows a **Modern Technical / Minimalist** aesthetic, prioritizing clarity and efficiency.
-
--   **Glassmorphism:** The header uses a subtle blurred transparency effect (`glass-panel`) for a premium, layered feel.
--   **Compact Card System:** Information is organized into clean, bordered cards with consistent spacing, making dense data easy to scan.
--   **Typography:** Uses a bold, uppercase tracking style for labels to evoke a "professional tool" or "dashboard" vibe.
--   **Interactive Feedback:** 
-    - Smooth animations using `motion/react` for entry/exit of results.
-    - Visual "Copied" states with green highlights to confirm user actions.
-    - Color-coded pricing (Indigo for discounts, Rose for markups) to provide instant visual context.
--   **Mobile-First Layout:** The interface seamlessly transitions from a side-by-side view on desktop to a focused vertical stack on mobile devices.
--   **Iconography:** Utilizes `lucide-react` for crisp, recognizable visual cues for every data type.
 
 ## 📦 Tech Stack
 
--   **Frontend:** React (TypeScript)
--   **Styling:** Tailwind CSS
--   **Animations:** Motion (formerly Framer Motion)
--   **AI Integration:** @google/genai (Gemini 3 Flash Preview)
--   **Icons:** Lucide React
+- **Frontend:** React 19, TypeScript, Vite
+- **Backend:** Node.js, Express (`server.ts`)
+- **Styling:** Tailwind CSS v4
+- **Animations:** Motion (`motion/react`)
+- **AI Integration:** `@google/genai` (Gemini 3 Flash Preview & Gemini 2.5 Flash)
+- **Icons:** Lucide React

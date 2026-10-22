@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Loader2, ExternalLink, Package, Globe, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText, RefreshCw, Sun, Moon, Eye, EyeOff } from "lucide-react";
+import { Search, Loader2, ExternalLink, Package, Tag, Ruler, Layers, DollarSign, Copy, Check, JapaneseYen, Palette, FileText, RefreshCw, Sun, Moon, Eye, EyeOff } from "lucide-react";
 
 const fetchMarketRate = async (
   setProgressMsg?: (msg: string) => void
@@ -99,8 +99,6 @@ const cleanErrorMessage = (raw: string): string => {
 };
 
 export default function App() {
-  const [mode, setMode] = useState<'analyze' | 'translate'>('analyze');
-  const [translationResult, setTranslationResult] = useState<{ name?: string; summary?: string } | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -150,67 +148,6 @@ export default function App() {
       console.error("Exchange rate refresh error:", err);
       setError(`Failed to refresh rate: ${err.message || "Unknown error"}`);
     } finally {
-      setTimeout(() => setLoading(false), 500);
-    }
-  };
-
-  const startTranslation = async (value: string) => {
-    const trimmedInput = value.trim();
-    if (!trimmedInput) return;
-
-    setLoading(true);
-    setProgress(0);
-    setError(null);
-    setTranslationResult(null);
-    setProductInfo(null);
-    setProgressMessage("Initializing translation...");
-
-    const progressInterval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev < 90) return prev + Math.random() * 15;
-        return prev;
-      });
-    }, 300);
-
-    try {
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT")), 60000)
-      );
-
-      const aiPromise = (async () => {
-        const res = await fetch("/api/translate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: trimmedInput }),
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          throw new Error(json.error || `Translation error: ${res.status}`);
-        }
-        return json;
-      })();
-
-      const data: any = await Promise.race([aiPromise, timeoutPromise]);
-      
-      if (data) {
-        setTranslationResult({
-          name: data.translatedName,
-          summary: data.translatedSummary
-        });
-        setProgress(100);
-        setProgressMessage("Translation complete!");
-      } else {
-        throw new Error("The AI returned an empty response. Please try again.");
-      }
-    } catch (err: any) {
-      console.error(err);
-      if (err.message === "TIMEOUT") {
-        setError("The translation timed out. Please try with a shorter text or try again.");
-      } else {
-        setError(cleanErrorMessage(err.message || "An error occurred during translation."));
-      }
-    } finally {
-      clearInterval(progressInterval);
       setTimeout(() => setLoading(false), 500);
     }
   };
@@ -434,11 +371,7 @@ export default function App() {
 
   const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === 'analyze') {
-      startAnalysis(inputValue);
-    } else {
-      startTranslation(inputValue);
-    }
+    startAnalysis(inputValue);
   };
 
   const retailPriceJpy = productInfo ? calculateRetailPrice(manualUsdPrice, productInfo.exchangeRate, discount) : 0;
@@ -483,50 +416,16 @@ export default function App() {
       </header>
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-10 flex flex-col gap-8 relative z-10">
-        {/* Mode Toggle */}
-        <div className="flex justify-center">
-          <div className={`p-1 rounded-2xl border flex gap-1 backdrop-blur-md ${
-            theme === 'dark' ? 'bg-white/[0.03] border-white/[0.08]' : 'bg-black/[0.03] border-black/[0.05]'
-          }`}>
-            {[
-              { id: 'analyze', label: 'Analyze', icon: Search },
-              { id: 'translate', label: 'Translate', icon: Globe }
-            ].map((m) => (
-              <button
-                key={m.id}
-                onClick={() => {
-                  setMode(m.id as any);
-                  setError(null);
-                  setProductInfo(null);
-                  setTranslationResult(null);
-                }}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                  mode === m.id
-                    ? theme === 'dark' 
-                      ? 'bg-white text-black shadow-lg shadow-white/10' 
-                      : 'bg-slate-900 text-white shadow-lg shadow-slate-900/10'
-                    : theme === 'dark'
-                      ? 'text-white/40 hover:text-white/60'
-                      : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                <m.icon size={14} />
-                {m.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Input Section */}
         <section className="w-full">
           <form onSubmit={handleAction} className="relative flex gap-3">
             <div className="relative flex-1 group">
               <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white/20 group-focus-within:text-blue-500 transition-colors">
-                {mode === 'analyze' ? <Search size={20} /> : <Globe size={20} />}
+                <Search size={20} />
               </div>
               <input
                 type="text"
-                placeholder={mode === 'analyze' ? "Paste URL or enter USD price..." : "Enter product name or description to translate..."}
+                placeholder="Paste URL, product name, or enter USD price..."
                 value={inputValue}
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -553,7 +452,7 @@ export default function App() {
                   <span>{Math.round(progress)}%</span>
                 </>
               ) : (
-                mode === 'analyze' ? "Analyze" : "Translate"
+                "Analyze"
               )}
             </button>
             {loading && (
@@ -628,13 +527,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  if (mode === 'analyze') {
-                    startAnalysis(inputValue);
-                  } else {
-                    startTranslation(inputValue);
-                  }
-                }}
+                onClick={() => startAnalysis(inputValue)}
                 disabled={loading || !inputValue.trim()}
                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 border cursor-pointer ${
                   theme === 'dark'
@@ -644,84 +537,6 @@ export default function App() {
               >
                 Retry
               </button>
-            </motion.div>
-          )}
-
-          {translationResult && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="max-w-3xl mx-auto w-full"
-            >
-              <div className="compact-card p-8 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
-                
-                <div className="space-y-6">
-                  {translationResult.name && (
-                    <div className="space-y-3">
-                      <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-neutral-400'}`}>Japanese Name</span>
-                      <div className="flex items-center justify-between gap-4">
-                        <div 
-                          onClick={() => copyToClipboard("trans_name", translationResult.name!)}
-                          className="group cursor-pointer relative flex-1"
-                        >
-                          <p className={`text-xl font-bold transition-all group-hover:opacity-70 ${theme === 'dark' ? 'text-white' : 'text-neutral-900'}`}>
-                            {translationResult.name}
-                          </p>
-                          {copiedStates["trans_name"] && (
-                            <motion.div 
-                              initial={{ opacity: 0, y: 5 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              className="absolute -top-6 left-0 px-2 py-0.5 rounded bg-emerald-500 text-[9px] font-bold text-white uppercase tracking-widest"
-                            >
-                              Copied
-                            </motion.div>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => copyToClipboard("trans_name", translationResult.name!)}
-                          className={`p-2 rounded-lg border transition-all ${
-                            copiedStates["trans_name"]
-                              ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
-                              : theme === 'dark'
-                                ? "bg-white/[0.05] border-white/[0.08] text-white/40 hover:text-white"
-                                : "bg-black/[0.03] border-black/[0.05] text-neutral-400 hover:text-neutral-900"
-                          }`}
-                        >
-                          {copiedStates["trans_name"] ? <Check size={16} /> : <Copy size={16} />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {translationResult.summary && (
-                    <div className="space-y-3">
-                      <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-neutral-400'}`}>Japanese Summary</span>
-                      <div className="relative group">
-                        <div className={`p-5 rounded-2xl border leading-relaxed ${
-                          theme === 'dark' 
-                            ? 'bg-white/[0.02] border-white/[0.05] text-white/80' 
-                            : 'bg-black/[0.02] border-black/[0.05] text-neutral-700'
-                        }`}>
-                          {translationResult.summary}
-                        </div>
-                        <button
-                          onClick={() => copyToClipboard("trans_summary", translationResult.summary!)}
-                          className={`absolute top-3 right-3 p-2 rounded-lg border transition-all ${
-                            copiedStates["trans_summary"]
-                              ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
-                              : theme === 'dark'
-                                ? "bg-white/[0.05] border-white/[0.08] text-white/40 hover:text-white opacity-0 group-hover:opacity-100"
-                                : "bg-black/[0.03] border-black/[0.05] text-neutral-400 hover:text-neutral-900 opacity-0 group-hover:opacity-100"
-                          }`}
-                        >
-                          {copiedStates["trans_summary"] ? <Check size={16} /> : <Copy size={16} />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
             </motion.div>
           )}
 
