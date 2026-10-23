@@ -226,44 +226,106 @@ async function startServer() {
 
     let pageContext = "";
     if (isUrl) {
-      try {
+      const fetchViaJinaReader = async (): Promise<string> => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const htmlRes = await fetch(trimmedInput, {
-          signal: controller.signal,
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
-          },
-        });
-        clearTimeout(timeout);
-        if (htmlRes.ok) {
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        try {
+          const readerRes = await fetch(`https://r.jina.ai/${trimmedInput}`, {
+            signal: controller.signal,
+            headers: {
+              "X-Remove-Selector": "header, nav, footer",
+              "X-Retain-Images": "none",
+              "Accept": "text/plain",
+            },
+          });
+          if (!readerRes.ok) return "";
+          const text = await readerRes.text();
+          if (
+            !text ||
+            text.length < 100 ||
+            /Access Denied|Attention Required|Just a moment|Security Challenge/i.test(text.slice(0, 400))
+          ) {
+            return "";
+          }
+          return text.slice(0, 12000);
+        } catch {
+          return "";
+        } finally {
+          clearTimeout(timeout);
+        }
+      };
+
+      const fetchDirectMetadata = async (): Promise<string> => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4500);
+        try {
+          const htmlRes = await fetch(trimmedInput, {
+            signal: controller.signal,
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
+            },
+          });
+          if (!htmlRes.ok) return "";
           const html = await htmlRes.text();
           const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-          const ogTitleMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
-          const ogDescMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i);
-          const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
-          const ldJsonMatch = html.match(/<script type=["']application\/ld\+json["']>([\s\S]*?)<\/script>/i);
+          const titleText = titleMatch ? titleMatch[1].trim() : "";
+
+          // Detect Cloudflare / PerimeterX / Akamai bot challenge pages
+          if (/Just a moment|Access Denied|Attention Required|Security Challenge|403 Forbidden|Robot or human/i.test(titleText)) {
+            return "";
+          }
+
+          const ogTitleMatch = html.match(/<meta\s+(?:property|name)=["']og:title["']\s+content=["']([^"']+)["']/i) ||
+                               html.match(/<meta\s+content=["']([^"']+)["']\s+(?:property|name)=["']og:title["']/i);
+          const ogDescMatch = html.match(/<meta\s+(?:property|name)=["']og:description["']\s+content=["']([^"']+)["']/i) ||
+                              html.match(/<meta\s+content=["']([^"']+)["']\s+(?:property|name)=["']og:description["']/i);
+          const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i) ||
+                            html.match(/<meta\s+content=["']([^"']+)["']\s+name=["']description["']/i);
+          const ldJsonMatches = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+          const ldJsonText = ldJsonMatches.map((m) => m[1].trim()).join("\n").slice(0, 4000);
+
+          // Require meaningful product metadata (such as structured JSON-LD or product description), otherwise let reader fetch full rendered content
+          if (!ldJsonText && !ogDescMatch && !descMatch) {
+            return "";
+          }
 
           const parts = [
-            titleMatch ? `Page Title: ${titleMatch[1].trim()}` : "",
+            titleText ? `Page Title: ${titleText}` : "",
             ogTitleMatch ? `Product Title: ${ogTitleMatch[1].trim()}` : "",
             ogDescMatch ? `Product Description: ${ogDescMatch[1].trim()}` : "",
             descMatch ? `Description: ${descMatch[1].trim()}` : "",
-            ldJsonMatch ? `Structured Data: ${ldJsonMatch[1].trim().slice(0, 1500)}` : "",
+            ldJsonText ? `Structured Data: ${ldJsonText}` : "",
           ].filter(Boolean);
 
-          if (parts.length > 0) {
-            pageContext = `\nSource Webpage Context:\n${parts.join("\n")}\n`;
+          return parts.join("\n");
+        } catch {
+          return "";
+        } finally {
+          clearTimeout(timeout);
+        }
+      };
+
+      try {
+        let extracted = await fetchDirectMetadata();
+        // If direct fetch was blocked (e.g. 403 on Yeti) or lacked detailed specs, use Jina Reader to get the rendered product page
+        if (!extracted || extracted.length < 300) {
+          const readerContent = await fetchViaJinaReader();
+          if (readerContent) {
+            extracted = extracted ? `${extracted}\n\nRendered Page Content:\n${readerContent}` : readerContent;
           }
         }
+        if (extracted) {
+          pageContext = `\n\n--- SOURCE WEBPAGE CONTENT ---\n${extracted}\n--- END SOURCE WEBPAGE CONTENT ---\n`;
+        }
       } catch (fetchErr) {
-        console.warn("Direct page fetch failed or timed out, continuing with prompt:", fetchErr);
+        console.warn("Page context extraction failed, continuing:", fetchErr);
       }
     }
 
-    const prompt = `Extract product info from: ${trimmedInput}.${pageContext} ${rateInstruction || "Find the current USD/JPY market exchange rate and use it for calculations."}
+    const prompt = `Extract accurate product info for: ${trimmedInput}.${pageContext}
+${rateInstruction || "Find the current USD/JPY market exchange rate and use it for calculations."}
 
 Return the result as a valid JSON object formatted inside a \`\`\`json ... \`\`\` code block with this exact structure:
 {
@@ -277,13 +339,14 @@ Return the result as a valid JSON object formatted inside a \`\`\`json ... \`\`\
     "material": "Material in Japanese",
     "dimensions": "Dimensions in cm in Japanese with all numbers rounded up to whole numbers",
     "color": "Color in Japanese",
-    "description": "Short 1-sentence summary in Japanese"
+    "description": "Detailed 3-4 sentence product description in Japanese"
   }
 }
 CRITICAL REQUIREMENTS:
+- PRIMARY PRODUCT ONLY: Extract ONLY the main product matching the URL / Page Title / main H1 heading. Ignore any "Add the essentials", "Related Products", "Complete the Look", or upsell items on the page.
 - Do not use special characters or trademark symbols like "®", "™", or similar in any text fields.
 - MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe.
-- DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm).
+- DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm). If the product is apparel without explicit cm/inch dimensions, leave "dimensions" as an empty string "".
 - Output valid JSON only. Do not add markdown introductory or concluding text outside the code block.`;
 
     let response: any = null;
@@ -297,15 +360,18 @@ CRITICAL REQUIREMENTS:
       });
     };
 
-    // Step 1: Direct prompt without tools (fastest, most reliable, avoids 429 tool quota exhaustion)
-    try {
-      response = await generateWithTools();
-    } catch (err: any) {
-      console.warn("Direct generation attempt failed, trying tool fallbacks:", err?.message || err);
-      lastError = err;
+    // If input is a URL and we have extracted pageContext (or if input is a product name), direct prompt without tools is fastest and most accurate.
+    // If input is a URL and pageContext is empty (blocked everywhere), try urlContext / googleSearch first so the model doesn't guess from the URL string.
+    if (!isUrl || pageContext) {
+      try {
+        response = await generateWithTools();
+      } catch (err: any) {
+        console.warn("Direct generation attempt failed, trying tool fallbacks:", err?.message || err);
+        lastError = err;
+      }
     }
 
-    // Step 2: Try urlContext if direct prompt failed and input was a URL
+    // Try urlContext if needed and input was a URL
     if (!response && isUrl) {
       try {
         response = await generateWithTools([{ urlContext: {} }]);
@@ -315,12 +381,21 @@ CRITICAL REQUIREMENTS:
       }
     }
 
-    // Step 3: Try googleSearch if needed
+    // Try googleSearch if needed
     if (!response) {
       try {
         response = await generateWithTools([{ googleSearch: {} }]);
       } catch (err: any) {
         console.warn("googleSearch attempt failed:", err?.message || err);
+        lastError = err;
+      }
+    }
+
+    // Final fallback to direct prompt if tools failed with 429
+    if (!response && isUrl && !pageContext) {
+      try {
+        response = await generateWithTools();
+      } catch (err: any) {
         lastError = err;
       }
     }
