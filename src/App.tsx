@@ -42,8 +42,15 @@ interface ProductInfo {
 }
 
 const roundUpDimensions = (raw?: string): string => {
-  if (!raw) return "";
+  if (!raw) return "N/A";
   let text = raw.trim();
+  if (
+    !text ||
+    !/\d/.test(text) ||
+    /^(?:n\/?a|none|null|undefined|-|約?-|約?n\/?a|不明|なし|該当なし|情報なし)$/i.test(text)
+  ) {
+    return "N/A";
+  }
 
   // If text does not contain cm/センチ and contains inch marks (e.g. 10.5" or 10.5 in or 10.5 inches),
   // convert inches to cm (1 in = 2.54 cm) and round up
@@ -67,6 +74,15 @@ const roundUpDimensions = (raw?: string): string => {
     text = `約${text}`;
   }
 
+  return text;
+};
+
+const formatMaterial = (raw?: string): string => {
+  if (!raw) return "N/A";
+  const text = raw.trim();
+  if (!text || /^(?:n\/?a|none|null|undefined|-|不明|なし|該当なし|情報なし)$/i.test(text)) {
+    return "N/A";
+  }
   return text;
 };
 
@@ -218,10 +234,10 @@ export default function App() {
           exchangeRate: finalRate,
           details: {
             price: `$${usdValue.toFixed(2)}`,
-            id: "-",
-            material: "-",
-            dimensions: "-",
-            color: "-",
+            id: "N/A",
+            material: "N/A",
+            dimensions: "N/A",
+            color: "N/A",
             description: "クイックチェックの結果です。詳細情報は含まれません。"
           }
         });
@@ -242,19 +258,23 @@ export default function App() {
         setProgress((prev) => {
           if (prev < 30) {
             setProgressMessage("Searching exchange rates...");
-            return prev + Math.random() * 5;
+            return prev + Math.random() * 6;
           }
-          if (prev < 60) {
+          if (prev < 65) {
             setProgressMessage("Analyzing product page...");
-            return prev + Math.random() * 3;
+            return prev + Math.random() * 5;
           }
           if (prev < 90) {
             setProgressMessage("Generating Japanese translation...");
-            return prev + Math.random() * 2;
+            return prev + Math.random() * 3;
+          }
+          if (prev < 98) {
+            setProgressMessage("Finalizing product details...");
+            return Math.min(98, prev + 0.4);
           }
           return prev;
         });
-      }, 400);
+      }, 350);
 
       try {
         const timeoutPromise = new Promise((_, reject) => 
@@ -607,10 +627,10 @@ export default function App() {
 
                   <div className="grid grid-cols-2 gap-5">
                     {[
-                      { label: "Color", value: productInfo.details.color, icon: Palette, key: "color" },
-                      { label: "Product ID", value: productInfo.details.id, icon: Tag, key: "id" },
-                      { label: "Material", value: productInfo.details.material, icon: Layers, key: "material" },
-                      { label: "Dimensions", value: productInfo.details.dimensions ? roundUpDimensions(productInfo.details.dimensions) : undefined, icon: Ruler, key: "dimensions" },
+                      { label: "Color", value: productInfo.details.color?.trim() || "N/A", icon: Palette, key: "color" },
+                      { label: "Product ID", value: productInfo.details.id?.trim() || "N/A", icon: Tag, key: "id" },
+                      { label: "Material", value: formatMaterial(productInfo.details.material), icon: Layers, key: "material" },
+                      { label: "Dimensions", value: roundUpDimensions(productInfo.details.dimensions), icon: Ruler, key: "dimensions" },
                     ].map((item) => item.value && (
                       <button
                         key={item.key}

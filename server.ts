@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 
 dotenv.config();
 
@@ -49,38 +49,54 @@ const callGeminiWithFallback = async (params: {
   contents: any;
   config?: any;
 }) => {
-  // Ordered by current availability and stability
-  const models = [
-    "gemini-3-flash-preview",
-    "gemini-flash-lite-latest",
-    "gemini-3.6-flash",
-    "gemini-3.7-flash",
-    "gemini-3.8-flash",
-    "gemini-flash-latest",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-3.5-flash"
+  // Ordered by lowest latency and active quota availability
+  const models: Array<{ name: string; thinkingLevel?: ThinkingLevel; timeoutMs: number }> = [
+    { name: "gemini-flash-lite-latest", timeoutMs: 9000 },
+    { name: "gemini-3.1-flash-lite-preview", thinkingLevel: ThinkingLevel.MINIMAL, timeoutMs: 10000 },
+    { name: "gemini-3.1-flash-lite", thinkingLevel: ThinkingLevel.MINIMAL, timeoutMs: 10000 },
+    { name: "gemini-3.8-flash", thinkingLevel: ThinkingLevel.LOW, timeoutMs: 12000 },
+    { name: "gemini-flash-latest", timeoutMs: 10000 },
   ];
   let lastErr: any = null;
 
-  for (const model of models) {
+  for (const modelSpec of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        return await ai.models.generateContent({
-          model,
-          contents: params.contents,
-          config: params.config,
+        const mergedConfig: any = { ...(params.config || {}) };
+        if (modelSpec.thinkingLevel && !mergedConfig.thinkingConfig) {
+          mergedConfig.thinkingConfig = { thinkingLevel: modelSpec.thinkingLevel };
+        }
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`MODEL_TIMEOUT: ${modelSpec.name} exceeded ${modelSpec.timeoutMs}ms`)),
+            modelSpec.timeoutMs
+          );
         });
+
+        return await Promise.race([
+          ai.models.generateContent({
+            model: modelSpec.name,
+            contents: params.contents,
+            config: mergedConfig,
+          }),
+          timeoutPromise,
+        ]);
       } catch (err: any) {
         lastErr = err;
         const msg = err?.message || "";
-        console.warn(`Model ${model} (attempt ${attempt + 1}) failed: ${msg}.`);
-        const isHighDemandOrLimit = msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("429");
-        if (isHighDemandOrLimit && attempt === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+        const isQuotaExceeded = msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED");
+        const isTimeout = msg.includes("MODEL_TIMEOUT");
+        const isTransientUnavailable = msg.includes("503") || msg.includes("UNAVAILABLE");
+        // Only retry once on fast 503; on timeout or 429 immediately switch to next model
+        if (isTransientUnavailable && !isQuotaExceeded && !isTimeout && attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
         } else {
-          break; // Try next model in list
+          break;
         }
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }
   }
@@ -114,8 +130,15 @@ const extractJson = (text: string) => {
 };
 
 const roundUpDimensions = (raw?: string): string => {
-  if (!raw) return "";
+  if (!raw) return "N/A";
   let text = raw.trim();
+  if (
+    !text ||
+    !/\d/.test(text) ||
+    /^(?:n\/?a|none|null|undefined|-|約?-|約?n\/?a|不明|なし|該当なし|情報なし)$/i.test(text)
+  ) {
+    return "N/A";
+  }
 
   // If text doesn't contain cm/センチ and contains inch marks, convert to cm (1 in = 2.54 cm) and round up
   if (!/cm|センチ/i.test(text) && (/["”″]|(?:in|inch|inches)\b/i.test(text))) {
@@ -228,7 +251,7 @@ async function startServer() {
     if (isUrl) {
       const fetchViaJinaReader = async (): Promise<string> => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 9000);
+        const timeout = setTimeout(() => controller.abort(), 7000);
         try {
           const readerRes = await fetch(`https://r.jina.ai/${trimmedInput}`, {
             signal: controller.signal,
@@ -247,7 +270,13 @@ async function startServer() {
           ) {
             return "";
           }
-          return text.slice(0, 12000);
+          // Strip markdown link URLs [label](url) -> label and remove trailing cookie preference banners to keep prompt compact and fast
+          const cleaned = text
+            .replace(/##\s*Privacy Preference Center[\s\S]*$/i, "")
+            .replace(/\[([^\]]*)\]\([^)]+\)/g, "$1")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+          return cleaned.slice(0, 8000);
         } catch {
           return "";
         } finally {
@@ -257,7 +286,7 @@ async function startServer() {
 
       const fetchDirectMetadata = async (): Promise<string> => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4500);
+        const timeout = setTimeout(() => controller.abort(), 3500);
         try {
           const htmlRes = await fetch(trimmedInput, {
             signal: controller.signal,
@@ -308,13 +337,19 @@ async function startServer() {
       };
 
       try {
-        let extracted = await fetchDirectMetadata();
-        // If direct fetch was blocked (e.g. 403 on Yeti) or lacked detailed specs, use Jina Reader to get the rendered product page
+        // Run both direct metadata and Jina Reader in parallel so bot-blocked pages don't pay sequential latency
+        const [directContent, readerContent] = await Promise.all([
+          fetchDirectMetadata(),
+          fetchViaJinaReader(),
+        ]);
+        let extracted = directContent;
         if (!extracted || extracted.length < 300) {
-          const readerContent = await fetchViaJinaReader();
           if (readerContent) {
             extracted = extracted ? `${extracted}\n\nRendered Page Content:\n${readerContent}` : readerContent;
           }
+        } else if (readerContent) {
+          // Append concise rendered page content if direct metadata is short so material/dimensions in body text aren't missed
+          extracted = `${extracted}\n\nRendered Page Content:\n${readerContent.slice(0, 5000)}`;
         }
         if (extracted) {
           pageContext = `\n\n--- SOURCE WEBPAGE CONTENT ---\n${extracted}\n--- END SOURCE WEBPAGE CONTENT ---\n`;
@@ -345,8 +380,8 @@ Return the result as a valid JSON object formatted inside a \`\`\`json ... \`\`\
 CRITICAL REQUIREMENTS:
 - PRIMARY PRODUCT ONLY: Extract ONLY the main product matching the URL / Page Title / main H1 heading. Ignore any "Add the essentials", "Related Products", "Complete the Look", or upsell items on the page.
 - Do not use special characters or trademark symbols like "®", "™", or similar in any text fields.
-- MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe.
-- DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm). If the product is apparel without explicit cm/inch dimensions, leave "dimensions" as an empty string "".
+- MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe. If material information is not found, set "material" to "N/A".
+- DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm). If dimensions are not found (e.g. apparel without explicit measurements), set "dimensions" to "N/A".
 - Output valid JSON only. Do not add markdown introductory or concluding text outside the code block.`;
 
     let response: any = null;
@@ -366,7 +401,6 @@ CRITICAL REQUIREMENTS:
       try {
         response = await generateWithTools();
       } catch (err: any) {
-        console.warn("Direct generation attempt failed, trying tool fallbacks:", err?.message || err);
         lastError = err;
       }
     }
@@ -376,7 +410,6 @@ CRITICAL REQUIREMENTS:
       try {
         response = await generateWithTools([{ urlContext: {} }]);
       } catch (err: any) {
-        console.warn("urlContext attempt failed, falling back to search:", err?.message || err);
         lastError = err;
       }
     }
@@ -386,7 +419,6 @@ CRITICAL REQUIREMENTS:
       try {
         response = await generateWithTools([{ googleSearch: {} }]);
       } catch (err: any) {
-        console.warn("googleSearch attempt failed:", err?.message || err);
         lastError = err;
       }
     }
@@ -421,13 +453,15 @@ CRITICAL REQUIREMENTS:
       if (typeof data.exchangeRate === "string") {
         data.exchangeRate = parseFloat(data.exchangeRate.replace(/[^0-9.]/g, "")) || 150;
       }
-      if (data.details) {
-        if (data.details.dimensions) {
-          data.details.dimensions = roundUpDimensions(data.details.dimensions);
-        }
-      } else {
+      if (!data.details || typeof data.details !== "object") {
         data.details = {};
       }
+      const rawMaterial = typeof data.details.material === "string" ? data.details.material.trim() : "";
+      data.details.material =
+        !rawMaterial || /^(?:n\/?a|none|null|undefined|-|不明|なし|該当なし|情報なし)$/i.test(rawMaterial)
+          ? "N/A"
+          : rawMaterial;
+      data.details.dimensions = roundUpDimensions(data.details.dimensions);
 
       return res.json({ data });
     } catch (parseErr) {
