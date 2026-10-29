@@ -135,17 +135,27 @@ const roundUpDimensions = (raw?: string): string => {
   if (
     !text ||
     !/\d/.test(text) ||
-    /^(?:n\/?a|none|null|undefined|-|約?-|約?n\/?a|不明|なし|該当なし|情報なし)$/i.test(text)
+    /^(?:n\/?a|none|null|undefined|-|約?-|約?n\/?a|不明|なし|該当なし|情報なし|記載なし|サイズ表記なし)$/i.test(text)
   ) {
     return "N/A";
   }
 
-  // If text doesn't contain cm/センチ and contains inch marks, convert to cm (1 in = 2.54 cm) and round up
-  if (!/cm|センチ/i.test(text) && (/["”″]|(?:in|inch|inches)\b/i.test(text))) {
-    text = text.replace(/(\d+(?:\.\d+)?)\s*(?:["”″]|(?:in|inch|inches)\b)/gi, (_, val) => {
+  // Convert inches to cm (1 in = 2.54 cm) and round up if cm is not already present
+  if (!/cm|センチ/i.test(text) && (/["”″]|(?:\bin|\binch|\binches)\b/i.test(text))) {
+    text = text.replace(/(\d+(?:\.\d+)?)\s*(?:["”″]|(?:\bin|\binch|\binches)\b)/gi, (_, val) => {
       const num = parseFloat(val);
       if (isNaN(num)) return _;
       const cmVal = Math.ceil(num * 2.54);
+      return `${cmVal}cm`;
+    });
+  }
+
+  // Convert mm to cm (10 mm = 1 cm) and round up if cm is not already present
+  if (!/cm|センチ/i.test(text) && /\d+(?:\.\d+)?\s*mm\b/i.test(text)) {
+    text = text.replace(/(\d+(?:\.\d+)?)\s*mm\b/gi, (_, val) => {
+      const num = parseFloat(val);
+      if (isNaN(num)) return _;
+      const cmVal = Math.ceil(num / 10);
       return `${cmVal}cm`;
     });
   }
@@ -156,11 +166,63 @@ const roundUpDimensions = (raw?: string): string => {
     return isNaN(num) ? match : Math.ceil(num).toString();
   });
 
-  if (text && !text.startsWith("約")) {
+  if (text && !text.includes("約")) {
     text = `約${text}`;
   }
 
   return text;
+};
+
+// Scans full-length page text (before truncation) for any lines mentioning materials, fabrics, or dimensions/measurements
+const extractSpecHighlights = (fullText: string): string => {
+  if (!fullText) return "";
+  const lines = fullText.split(/\n+/);
+  const matched: string[] = [];
+  const specRegex =
+    /(?:material|fabric|composition|construction|shell|lining|upper|outsole|midsole|insole|footbed|leather|suede|canvas|cotton|polyester|nylon|spandex|elastane|wool|fleece|cashmere|silk|linen|denim|rayon|viscose|acrylic|polyurethane|faux|manmade|synthetic|rubber|eva|tpu|stainless|steel|aluminum|titanium|brass|metal|alloy|silicone|polyethylene|polycarbonate|resin|wood|ceramic|glass|dimension|measurement|spec|exterior|interior|width|height|depth|length|diameter|circumference|capacity|weight|drop|strap|handle|inseam|waist|chest|アウトソール|アッパー|素材|材質|生地|寸法|サイズ|幅|高さ|奥行|マチ|全長|\d+(?:\.\d+)?\s*(?:cm|mm|in|inch|inches|["”″])\b|\d+(?:\.\d+)?\s*[x×]\s*\d+)/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.length < 3 || line.length > 500) continue;
+    if (
+      /cookie|privacy|shipping on orders|reward points|clearance|accessibility|write a review|customer rating|ask owners|forgot password|sign in|log in|subscribe|newsletter|terms of use/i.test(
+        line
+      )
+    ) {
+      continue;
+    }
+    if (specRegex.test(line)) {
+      const prev = i > 0 ? lines[i - 1].trim() : "";
+      const next = i + 1 < lines.length ? lines[i + 1].trim() : "";
+      const context = [
+        prev && prev.length < 120 ? prev : "",
+        line,
+        next && next.length < 180 ? next : "",
+      ]
+        .filter(Boolean)
+        .join(" | ");
+      if (!matched.includes(context)) {
+        matched.push(context);
+      }
+    }
+  }
+  return matched.slice(0, 45).join("\n");
+};
+
+// Extracts embedded JSON fields (from Next.js __NEXT_DATA__, Shopify JSON, Demandware, etc.) related to materials & dimensions
+const extractEmbeddedSpecJson = (html: string): string => {
+  if (!html) return "";
+  const snippets: string[] = [];
+  const keyRegex =
+    /"(?:material|materials|fabric|composition|dimensions|dimension|measurements|measurement|specifications|specs|sizeAndFit|careAndMaterials|features|bullets|detailBullets|exteriorDimensions|interiorDimensions|width|height|depth|length)"\s*:\s*("[^"]{2,400}"|\[[^\]]{2,600}\]|\{[^{}]{2,600}\})/gi;
+  let match: RegExpExecArray | null;
+  while ((match = keyRegex.exec(html)) !== null && snippets.length < 25) {
+    const cleaned = match[0].replace(/\\n|\\r|\\t/g, " ").replace(/\s+/g, " ").trim();
+    if (!snippets.includes(cleaned)) {
+      snippets.push(cleaned);
+    }
+  }
+  return snippets.join("\n");
 };
 
 async function startServer() {
@@ -249,34 +311,90 @@ async function startServer() {
 
     let pageContext = "";
     if (isUrl) {
+      const isBotBlockText = (sample: string): boolean =>
+        /Access to this page has been denied|Access Denied|Target URL returned error 403|requiring CAPTCHA|confirm you are\s+a human|Press & Hold|Attention Required|Just a moment|Security Challenge|Pardon Our Interruption|Verify you are human|Robot or human/i.test(
+          sample
+        );
+
       const fetchViaJinaReader = async (): Promise<string> => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 7000);
+        const timeout = setTimeout(() => controller.abort(), 7500);
         try {
           const readerRes = await fetch(`https://r.jina.ai/${trimmedInput}`, {
             signal: controller.signal,
             headers: {
-              "X-Remove-Selector": "header, nav, footer",
+              "X-Remove-Selector": "header, nav, footer, #onetrust-consent-sdk",
               "X-Retain-Images": "none",
               "Accept": "text/plain",
             },
           });
           if (!readerRes.ok) return "";
           const text = await readerRes.text();
-          if (
-            !text ||
-            text.length < 100 ||
-            /Access Denied|Attention Required|Just a moment|Security Challenge/i.test(text.slice(0, 400))
-          ) {
+          if (!text || text.length < 150 || isBotBlockText(text.slice(0, 800))) {
             return "";
           }
-          // Strip markdown link URLs [label](url) -> label and remove trailing cookie preference banners to keep prompt compact and fast
+          // Strip markdown link URLs [label](url) -> label and remove trailing cookie preference banners
           const cleaned = text
             .replace(/##\s*Privacy Preference Center[\s\S]*$/i, "")
             .replace(/\[([^\]]*)\]\([^)]+\)/g, "$1")
             .replace(/\n{3,}/g, "\n\n")
             .trim();
-          return cleaned.slice(0, 8000);
+
+          if (cleaned.length < 150 || isBotBlockText(cleaned.slice(0, 600))) {
+            return "";
+          }
+
+          // Extract all Material & Dimension lines from the FULL untruncated page first so specs past char 12,000 are never lost
+          const specHighlights = extractSpecHighlights(cleaned);
+          const bodySlice = cleaned.slice(0, 14000);
+          return specHighlights
+            ? `=== HIGHLIGHTED SPECS, MATERIALS & DIMENSIONS FROM PAGE ===\n${specHighlights}\n\n=== FULL PAGE TEXT ===\n${bodySlice}`
+            : bodySlice;
+        } catch {
+          return "";
+        } finally {
+          clearTimeout(timeout);
+        }
+      };
+
+      const fetchShopifyJson = async (): Promise<string> => {
+        if (!/\/products\/[^/?#]+/i.test(trimmedInput)) return "";
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3500);
+        try {
+          const urlObj = new URL(trimmedInput);
+          const jsonUrl = `${urlObj.origin}${urlObj.pathname.replace(/\/$/, "")}.json`;
+          const r = await fetch(jsonUrl, {
+            signal: controller.signal,
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              "Accept": "application/json",
+            },
+          });
+          if (!r.ok) return "";
+          const data = await r.json();
+          const p = data?.product;
+          if (!p) return "";
+          const bodyText = (p.body_html || "")
+            .replace(/<[^>]+>/g, "\n")
+            .replace(/&nbsp;/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/&quot;/g, '"')
+            .replace(/\n{2,}/g, "\n")
+            .trim();
+          const variantPrices = Array.isArray(p.variants)
+            ? p.variants.slice(0, 5).map((v: any) => `${v.title}: $${v.price} (SKU: ${v.sku || "N/A"})`).join(", ")
+            : "";
+          return [
+            p.title ? `Shopify Product Title: ${p.title}` : "",
+            p.vendor ? `Brand: ${p.vendor}` : "",
+            p.product_type ? `Type: ${p.product_type}` : "",
+            variantPrices ? `Variants & Price: ${variantPrices}` : "",
+            p.tags ? `Tags: ${p.tags}` : "",
+            bodyText ? `Product Description & Specs:\n${bodyText}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
         } catch {
           return "";
         } finally {
@@ -286,7 +404,7 @@ async function startServer() {
 
       const fetchDirectMetadata = async (): Promise<string> => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3500);
+        const timeout = setTimeout(() => controller.abort(), 4000);
         try {
           const htmlRes = await fetch(trimmedInput, {
             signal: controller.signal,
@@ -302,7 +420,7 @@ async function startServer() {
           const titleText = titleMatch ? titleMatch[1].trim() : "";
 
           // Detect Cloudflare / PerimeterX / Akamai bot challenge pages
-          if (/Just a moment|Access Denied|Attention Required|Security Challenge|403 Forbidden|Robot or human/i.test(titleText)) {
+          if (isBotBlockText(titleText) || isBotBlockText(html.slice(0, 1200))) {
             return "";
           }
 
@@ -313,10 +431,29 @@ async function startServer() {
           const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i) ||
                             html.match(/<meta\s+content=["']([^"']+)["']\s+name=["']description["']/i);
           const ldJsonMatches = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
-          const ldJsonText = ldJsonMatches.map((m) => m[1].trim()).join("\n").slice(0, 4000);
+          const ldJsonText = ldJsonMatches.map((m) => m[1].trim()).join("\n").slice(0, 5000);
 
-          // Require meaningful product metadata (such as structured JSON-LD or product description), otherwise let reader fetch full rendered content
-          if (!ldJsonText && !ogDescMatch && !descMatch) {
+          // Extract embedded JSON specs (Next.js, Demandware, etc.) and visible HTML body text so materials & dimensions in tabs/accordions are captured
+          const embeddedJsonSpecs = extractEmbeddedSpecJson(html);
+          const cleanedBodyText = html
+            .replace(/<script[\s\S]*?<\/script>/gi, "\n")
+            .replace(/<style[\s\S]*?<\/style>/gi, "\n")
+            .replace(/<svg[\s\S]*?<\/svg>/gi, "")
+            .replace(/<(?:header|nav|footer)[\s\S]*?<\/(?:header|nav|footer)>/gi, "\n")
+            .replace(/<[^>]+>/g, "\n")
+            .replace(/&nbsp;/gi, " ")
+            .replace(/&amp;/gi, "&")
+            .replace(/&quot;/gi, '"')
+            .replace(/&#39;|&apos;/gi, "'")
+            .replace(/&lt;/gi, "<")
+            .replace(/&gt;/gi, ">")
+            .replace(/[ \t]+/g, " ")
+            .replace(/\n\s*\n+/g, "\n")
+            .trim();
+
+          const bodySpecHighlights = extractSpecHighlights(cleanedBodyText);
+
+          if (!ldJsonText && !ogDescMatch && !descMatch && !bodySpecHighlights) {
             return "";
           }
 
@@ -326,9 +463,12 @@ async function startServer() {
             ogDescMatch ? `Product Description: ${ogDescMatch[1].trim()}` : "",
             descMatch ? `Description: ${descMatch[1].trim()}` : "",
             ldJsonText ? `Structured Data: ${ldJsonText}` : "",
+            embeddedJsonSpecs ? `Embedded Product Specs JSON:\n${embeddedJsonSpecs}` : "",
+            bodySpecHighlights ? `Highlighted Specs (Material / Dimensions) from HTML:\n${bodySpecHighlights}` : "",
+            cleanedBodyText ? `HTML Body Text Excerpt:\n${cleanedBodyText.slice(0, 6000)}` : "",
           ].filter(Boolean);
 
-          return parts.join("\n");
+          return parts.join("\n\n");
         } catch {
           return "";
         } finally {
@@ -337,22 +477,20 @@ async function startServer() {
       };
 
       try {
-        // Run both direct metadata and Jina Reader in parallel so bot-blocked pages don't pay sequential latency
-        const [directContent, readerContent] = await Promise.all([
+        // Run direct HTML metadata, Jina Reader, and Shopify JSON check in parallel
+        const [directContent, readerContent, shopifyContent] = await Promise.all([
           fetchDirectMetadata(),
           fetchViaJinaReader(),
+          fetchShopifyJson(),
         ]);
-        let extracted = directContent;
-        if (!extracted || extracted.length < 300) {
-          if (readerContent) {
-            extracted = extracted ? `${extracted}\n\nRendered Page Content:\n${readerContent}` : readerContent;
-          }
-        } else if (readerContent) {
-          // Append concise rendered page content if direct metadata is short so material/dimensions in body text aren't missed
-          extracted = `${extracted}\n\nRendered Page Content:\n${readerContent.slice(0, 5000)}`;
-        }
-        if (extracted) {
-          pageContext = `\n\n--- SOURCE WEBPAGE CONTENT ---\n${extracted}\n--- END SOURCE WEBPAGE CONTENT ---\n`;
+        const sections = [
+          shopifyContent ? `[Shopify Product Data]\n${shopifyContent}` : "",
+          directContent ? `[Direct HTML Metadata & Specs]\n${directContent}` : "",
+          readerContent ? `[Rendered Page Content]\n${readerContent}` : "",
+        ].filter(Boolean);
+
+        if (sections.length > 0) {
+          pageContext = `\n\n--- SOURCE WEBPAGE CONTENT ---\n${sections.join("\n\n")}\n--- END SOURCE WEBPAGE CONTENT ---\n`;
         }
       } catch (fetchErr) {
         console.warn("Page context extraction failed, continuing:", fetchErr);
@@ -380,8 +518,8 @@ Return the result as a valid JSON object formatted inside a \`\`\`json ... \`\`\
 CRITICAL REQUIREMENTS:
 - PRIMARY PRODUCT ONLY: Extract ONLY the main product matching the URL / Page Title / main H1 heading. Ignore any "Add the essentials", "Related Products", "Complete the Look", or upsell items on the page.
 - Do not use special characters or trademark symbols like "®", "™", or similar in any text fields.
-- MATERIAL: Focus on the main materials, listing up to two materials in Japanese. When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe. If material information is not found, set "material" to "N/A".
-- DIMENSIONS: Be extra careful and accurate with dimensions. Always express dimensions in cm (centimeters). If the source dimensions are in inches or other units, convert them to cm. All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always add "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約25 x 30 x 10 cm). If dimensions are not found (e.g. apparel without explicit measurements), set "dimensions" to "N/A".
+- MATERIAL (VERY IMPORTANT): Search the entire page content, highlighted specs, bullet points, and product description carefully for any material, fabric, composition, shell, lining, hardware, or construction details (e.g., cotton, polyester, leather, faux leather, manmade materials, nylon, fleece, suede, rubber, stainless steel, polyethylene, etc.). Translate and list up to two main materials in Japanese (for example, "Manmade materials" -> "合成素材", "Faux leather" -> "合成皮革", "100% post-consumer recycled materials / fleece" -> "リサイクル素材（フリース）"). When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe. Only set "material" to "N/A" if there is truly zero mention of material or fabric anywhere.
+- DIMENSIONS (VERY IMPORTANT): Search the entire page content, highlighted specs, bullet points, and description carefully for any measurements or dimensions (such as width, height, depth, length, diameter, exterior/interior dimensions, strap/handle drop, belt width, sole thickness, etc.). Always express dimensions ONLY in cm (centimeters) in Japanese — do NOT include inch values alongside cm. If the source dimensions are in inches or mm, convert them to cm (1 inch = 2.54 cm, 10 mm = 1 cm). All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always include "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約65 x 41 x 40 cm). Only set "dimensions" to "N/A" if no numerical measurements exist for this product.
 - Output valid JSON only. Do not add markdown introductory or concluding text outside the code block.`;
 
     let response: any = null;
@@ -395,20 +533,19 @@ CRITICAL REQUIREMENTS:
       });
     };
 
-    // If input is a URL and we have extracted pageContext (or if input is a product name), direct prompt without tools is fastest and most accurate.
-    // If input is a URL and pageContext is empty (blocked everywhere), try urlContext / googleSearch first so the model doesn't guess from the URL string.
-    if (!isUrl || pageContext) {
+    // For URLs: always try urlContext first (which combines any extracted pageContext in the prompt with Google's URL index)
+    if (isUrl) {
       try {
-        response = await generateWithTools();
+        response = await generateWithTools([{ urlContext: {} }]);
       } catch (err: any) {
         lastError = err;
       }
     }
 
-    // Try urlContext if needed and input was a URL
-    if (!response && isUrl) {
+    // Next, if non-URL or if urlContext failed, run direct prompt with extracted pageContext
+    if (!response && (!isUrl || pageContext)) {
       try {
-        response = await generateWithTools([{ urlContext: {} }]);
+        response = await generateWithTools();
       } catch (err: any) {
         lastError = err;
       }
@@ -423,8 +560,8 @@ CRITICAL REQUIREMENTS:
       }
     }
 
-    // Final fallback to direct prompt if tools failed with 429
-    if (!response && isUrl && !pageContext) {
+    // Final fallback to direct prompt if tools failed
+    if (!response) {
       try {
         response = await generateWithTools();
       } catch (err: any) {

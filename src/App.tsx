@@ -47,18 +47,28 @@ const roundUpDimensions = (raw?: string): string => {
   if (
     !text ||
     !/\d/.test(text) ||
-    /^(?:n\/?a|none|null|undefined|-|約?-|約?n\/?a|不明|なし|該当なし|情報なし)$/i.test(text)
+    /^(?:n\/?a|none|null|undefined|-|約?-|約?n\/?a|不明|なし|該当なし|情報なし|記載なし|サイズ表記なし)$/i.test(text)
   ) {
     return "N/A";
   }
 
   // If text does not contain cm/センチ and contains inch marks (e.g. 10.5" or 10.5 in or 10.5 inches),
   // convert inches to cm (1 in = 2.54 cm) and round up
-  if (!/cm|センチ/i.test(text) && (/["”″]|(?:in|inch|inches)\b/i.test(text))) {
-    text = text.replace(/(\d+(?:\.\d+)?)\s*(?:["”″]|(?:in|inch|inches)\b)/gi, (_, val) => {
+  if (!/cm|センチ/i.test(text) && (/["”″]|(?:\bin|\binch|\binches)\b/i.test(text))) {
+    text = text.replace(/(\d+(?:\.\d+)?)\s*(?:["”″]|(?:\bin|\binch|\binches)\b)/gi, (_, val) => {
       const num = parseFloat(val);
       if (isNaN(num)) return _;
       const cmVal = Math.ceil(num * 2.54);
+      return `${cmVal}cm`;
+    });
+  }
+
+  // Convert mm to cm (10 mm = 1 cm) and round up if cm is not already present
+  if (!/cm|センチ/i.test(text) && /\d+(?:\.\d+)?\s*mm\b/i.test(text)) {
+    text = text.replace(/(\d+(?:\.\d+)?)\s*mm\b/gi, (_, val) => {
+      const num = parseFloat(val);
+      if (isNaN(num)) return _;
+      const cmVal = Math.ceil(num / 10);
       return `${cmVal}cm`;
     });
   }
@@ -70,7 +80,7 @@ const roundUpDimensions = (raw?: string): string => {
   });
 
   // Ensure "約" is added in front if not already present
-  if (text && !text.startsWith("約")) {
+  if (text && !text.includes("約")) {
     text = `約${text}`;
   }
 
