@@ -49,55 +49,51 @@ const callGeminiWithFallback = async (params: {
   contents: any;
   config?: any;
 }) => {
-  // Ordered by lowest latency and active quota availability
-  const models: Array<{ name: string; thinkingLevel?: ThinkingLevel; timeoutMs: number }> = [
-    { name: "gemini-flash-lite-latest", timeoutMs: 9000 },
-    { name: "gemini-3.1-flash-lite-preview", thinkingLevel: ThinkingLevel.MINIMAL, timeoutMs: 10000 },
-    { name: "gemini-3.1-flash-lite", thinkingLevel: ThinkingLevel.MINIMAL, timeoutMs: 10000 },
-    { name: "gemini-3.8-flash", thinkingLevel: ThinkingLevel.LOW, timeoutMs: 12000 },
-    { name: "gemini-flash-latest", timeoutMs: 10000 },
-  ];
+  const hasTools = Boolean(params.config?.tools && params.config.tools.length > 0);
+
+  // When tools (urlContext / googleSearch) are requested, try at most 2 fast models with a 4s timeout so blocked URLs never stall
+  const models: Array<{ name: string; thinkingLevel?: ThinkingLevel; timeoutMs: number }> = hasTools
+    ? [
+        { name: "gemini-flash-lite-latest", thinkingLevel: ThinkingLevel.MINIMAL, timeoutMs: 4000 },
+        { name: "gemini-3.6-flash", thinkingLevel: ThinkingLevel.LOW, timeoutMs: 4000 },
+      ]
+    : [
+        { name: "gemini-3.6-flash", thinkingLevel: ThinkingLevel.LOW, timeoutMs: 7500 },
+        { name: "gemini-3.5-flash", thinkingLevel: ThinkingLevel.LOW, timeoutMs: 7500 },
+        { name: "gemini-flash-lite-latest", thinkingLevel: ThinkingLevel.MINIMAL, timeoutMs: 7000 },
+        { name: "gemini-3.1-flash-lite-preview", thinkingLevel: ThinkingLevel.MINIMAL, timeoutMs: 7000 },
+        { name: "gemini-3.5-flash-lite", thinkingLevel: ThinkingLevel.MINIMAL, timeoutMs: 7000 },
+      ];
   let lastErr: any = null;
 
   for (const modelSpec of models) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const mergedConfig: any = { ...(params.config || {}) };
-        if (modelSpec.thinkingLevel && !mergedConfig.thinkingConfig) {
-          mergedConfig.thinkingConfig = { thinkingLevel: modelSpec.thinkingLevel };
-        }
-
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`MODEL_TIMEOUT: ${modelSpec.name} exceeded ${modelSpec.timeoutMs}ms`)),
-            modelSpec.timeoutMs
-          );
-        });
-
-        return await Promise.race([
-          ai.models.generateContent({
-            model: modelSpec.name,
-            contents: params.contents,
-            config: mergedConfig,
-          }),
-          timeoutPromise,
-        ]);
-      } catch (err: any) {
-        lastErr = err;
-        const msg = err?.message || "";
-        const isQuotaExceeded = msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED");
-        const isTimeout = msg.includes("MODEL_TIMEOUT");
-        const isTransientUnavailable = msg.includes("503") || msg.includes("UNAVAILABLE");
-        // Only retry once on fast 503; on timeout or 429 immediately switch to next model
-        if (isTransientUnavailable && !isQuotaExceeded && !isTimeout && attempt === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        } else {
-          break;
-        }
-      } finally {
-        if (timer) clearTimeout(timer);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const mergedConfig: any = { ...(params.config || {}) };
+      if (modelSpec.thinkingLevel && !mergedConfig.thinkingConfig) {
+        mergedConfig.thinkingConfig = { thinkingLevel: modelSpec.thinkingLevel };
       }
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`MODEL_TIMEOUT: ${modelSpec.name} exceeded ${modelSpec.timeoutMs}ms`)),
+          modelSpec.timeoutMs
+        );
+      });
+
+      return await Promise.race([
+        ai.models.generateContent({
+          model: modelSpec.name,
+          contents: params.contents,
+          config: mergedConfig,
+        }),
+        timeoutPromise,
+      ]);
+    } catch (err: any) {
+      lastErr = err;
+      // Immediately advance to the next model on any error or timeout
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -173,55 +169,138 @@ const roundUpDimensions = (raw?: string): string => {
   return text;
 };
 
-// Scans full-length page text (before truncation) for any lines mentioning materials, fabrics, or dimensions/measurements
-const extractSpecHighlights = (fullText: string): string => {
+// Scans full-length text (including long paragraphs > 500 chars) specifically for Material, Fabric, Composition, and Construction details
+const extractMaterialCandidates = (fullText: string): string => {
   if (!fullText) return "";
-  const lines = fullText.split(/\n+/);
   const matched: string[] = [];
-  const specRegex =
-    /(?:material|fabric|composition|construction|shell|lining|upper|outsole|midsole|insole|footbed|leather|suede|canvas|cotton|polyester|nylon|spandex|elastane|wool|fleece|cashmere|silk|linen|denim|rayon|viscose|acrylic|polyurethane|faux|manmade|synthetic|rubber|eva|tpu|stainless|steel|aluminum|titanium|brass|metal|alloy|silicone|polyethylene|polycarbonate|resin|wood|ceramic|glass|dimension|measurement|spec|exterior|interior|width|height|depth|length|diameter|circumference|capacity|weight|drop|strap|handle|inseam|waist|chest|アウトソール|アッパー|素材|材質|生地|寸法|サイズ|幅|高さ|奥行|マチ|全長|\d+(?:\.\d+)?\s*(?:cm|mm|in|inch|inches|["”″])\b|\d+(?:\.\d+)?\s*[x×]\s*\d+)/i;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line || line.length < 3 || line.length > 500) continue;
-    if (
-      /cookie|privacy|shipping on orders|reward points|clearance|accessibility|write a review|customer rating|ask owners|forgot password|sign in|log in|subscribe|newsletter|terms of use/i.test(
-        line
-      )
-    ) {
-      continue;
-    }
-    if (specRegex.test(line)) {
-      const prev = i > 0 ? lines[i - 1].trim() : "";
-      const next = i + 1 < lines.length ? lines[i + 1].trim() : "";
-      const context = [
-        prev && prev.length < 120 ? prev : "",
-        line,
-        next && next.length < 180 ? next : "",
-      ]
-        .filter(Boolean)
-        .join(" | ");
-      if (!matched.includes(context)) {
-        matched.push(context);
+  // Break text into lines and sentences so long paragraphs (> 500 chars) are never skipped
+  const segments = fullText
+    .split(/[\n\r]+|(?<=[.!?])\s+|\s*[•\u2022]\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const materialRegex =
+    /(?:\b\d{1,3}\s*%\s*[a-zA-Z]+|\b(?:material|materials|fabric|fabrics|composition|construction|crafted\s+from|made\s+(?:from|of|with)|shell|lining|fill|insulation|trim|upper|outsole|midsole|insole|footbed|sockliner|leather|calfskin|lambskin|goatskin|cowhide|pebbled|saffiano|nappa|patent|suede|nubuck|shearling|sheepskin|vegan\s+leather|faux\s+leather|faux\s+fur|manmade|man-made|synthetic|canvas|cotton|organic\s+cotton|denim|chambray|corduroy|twill|linen|flax|hemp|jute|raffia|straw|silk|satin|velvet|velour|chiffon|lace|mesh|jersey|french\s+terry|terry|fleece|sherpa|wool|merino|cashmere|alpaca|mohair|polyester|recycled\s+polyester|nylon|polyamide|cordura|ripstop|gore-tex|primaloft|neoprene|spandex|elastane|lycra|rayon|viscose|modal|lyocell|tencel|cupro|acetate|acrylic|polyurethane|down|feather|rubber|vibram|vulcanized|eva|tpu|tpr|foam|cork|stainless\s+steel|steel|titanium|aluminum|aluminium|brass|copper|bronze|sterling\s+silver|silver|14k|18k|24k|gold\s+plated|platinum|rhodium|zinc|alloy|metal|hardware|ceramic|porcelain|enamel|glass|crystal|zirconia|pearl|silicone|polyethylene|polycarbonate|polypropylene|tritan|resin|abs|carbon\s+fiber|fiberglass|wood|bamboo)\b|素材|材質|生地|アッパー|アウトソール|裏地|本体|天然皮革|合成皮革|合成繊維|合成底|ゴム底|綿|ポリエステル|ナイロン|ウール|シルク|麻|牛革|羊革|山羊革|豚革)/i;
+
+  const noiseRegex =
+    /cookie|privacy\s+policy|privacy\s+preference|shipping\s+on\s+orders|reward\s+points|join\s+.*rewards|download\s+the\s+app|enable\s+accessibility|write\s+a\s+review|be\s+the\s+first\s+to\s+review|customer\s+rating|questions\s*&\s*answers|ask\s+owners|forgot\s+password|sign\s+in|log\s+in|subscribe|newsletter|terms\s+of\s+use|gift\s+card|store\s+locator|buy\s+now\s+pay\s+later|klarna|afterpay|affirm/i;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg.length < 3 || noiseRegex.test(seg)) continue;
+
+    if (materialRegex.test(seg)) {
+      if (seg.length <= 450) {
+        const prev = i > 0 && segments[i - 1].length < 100 && !noiseRegex.test(segments[i - 1]) ? segments[i - 1] : "";
+        const next = i + 1 < segments.length && segments[i + 1].length < 140 && !noiseRegex.test(segments[i + 1]) ? segments[i + 1] : "";
+        const combined = [prev, seg, next].filter(Boolean).join(" | ");
+        if (!matched.includes(combined)) {
+          matched.push(combined);
+        }
+      } else {
+        // For very long segments, extract windows around every material match
+        const globalMat = new RegExp(materialRegex.source, "gi");
+        let m: RegExpExecArray | null;
+        while ((m = globalMat.exec(seg)) !== null && matched.length < 40) {
+          const start = Math.max(0, m.index - 120);
+          const end = Math.min(seg.length, m.index + m[0].length + 180);
+          const windowText = seg.slice(start, end).trim();
+          if (!noiseRegex.test(windowText) && !matched.includes(windowText)) {
+            matched.push(windowText);
+          }
+        }
       }
     }
+    if (matched.length >= 40) break;
   }
-  return matched.slice(0, 45).join("\n");
+
+  return matched.join("\n");
 };
 
-// Extracts embedded JSON fields (from Next.js __NEXT_DATA__, Shopify JSON, Demandware, etc.) related to materials & dimensions
+// Scans full-length text specifically for Dimensions, Measurements, and Numerical Sizes
+const extractDimensionCandidates = (fullText: string): string => {
+  if (!fullText) return "";
+  const matched: string[] = [];
+
+  const segments = fullText
+    .split(/[\n\r]+|(?<=[.!?])\s+|\s*[•\u2022]\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const dimRegex =
+    /(?:\b(?:dimension|dimensions|measurement|measurements|exterior|interior|width|height|depth|length|diameter|circumference|handle\s+drop|strap\s+drop|belt\s+width|sole\s+height|heel\s+height|platform\s+height|inseam|waist|chest|capacity)\b|\d+(?:\.\d+)?\s*(?:cm|mm|in|inch|inches|["”″])\b|\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?|寸法|外寸|内寸|実寸|幅|高さ|奥行|マチ|全長|縦|横|厚み)/i;
+
+  const noiseRegex =
+    /cookie|privacy|shipping\s+on\s+orders|reward\s+points|write\s+a\s+review|customer\s+rating|ask\s+owners|forgot\s+password|sign\s+in|log\s+in|Model\s+is\s+\d/i;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg.length < 3 || seg.length > 500 || noiseRegex.test(seg)) continue;
+    if (dimRegex.test(seg)) {
+      const prev = i > 0 && segments[i - 1].length < 100 && !noiseRegex.test(segments[i - 1]) ? segments[i - 1] : "";
+      const next = i + 1 < segments.length && segments[i + 1].length < 140 && !noiseRegex.test(segments[i + 1]) ? segments[i + 1] : "";
+      const combined = [prev, seg, next].filter(Boolean).join(" | ");
+      if (!matched.includes(combined)) {
+        matched.push(combined);
+      }
+    }
+    if (matched.length >= 30) break;
+  }
+
+  return matched.join("\n");
+};
+
+// Extracts embedded JSON fields and fabric percentage strings from raw HTML (including <script> hydration state like __NEXT_DATA__, Shopify, Demandware)
 const extractEmbeddedSpecJson = (html: string): string => {
   if (!html) return "";
+  const boundedHtml = html.slice(0, 250000);
   const snippets: string[] = [];
+
+  // 1. Direct JSON property matches for material/fabric/dimensions/specs
   const keyRegex =
-    /"(?:material|materials|fabric|composition|dimensions|dimension|measurements|measurement|specifications|specs|sizeAndFit|careAndMaterials|features|bullets|detailBullets|exteriorDimensions|interiorDimensions|width|height|depth|length)"\s*:\s*("[^"]{2,400}"|\[[^\]]{2,600}\]|\{[^{}]{2,600}\})/gi;
+    /"(?:material|materials|fabric|fabrics|composition|care|careInstructions|careAndMaterials|upperMaterial|soleMaterial|outsoleMaterial|liningMaterial|outerMaterial|shellMaterial|bodyMaterial|hardwareMaterial|dimensions|dimension|measurements|measurement|specifications|specs|sizeAndFit|features|bullets|detailBullets|productDetails| exteriorDimensions|interiorDimensions|width|height|depth|length)"\s*:\s*("[^"]{2,400}"|\[[^\]]{2,600}\]|\{[^{}]{2,600}\})/gi;
   let match: RegExpExecArray | null;
-  while ((match = keyRegex.exec(html)) !== null && snippets.length < 25) {
-    const cleaned = match[0].replace(/\\n|\\r|\\t/g, " ").replace(/\s+/g, " ").trim();
+  while ((match = keyRegex.exec(boundedHtml)) !== null && snippets.length < 30) {
+    const cleaned = match[0]
+      .replace(/\\u002F/gi, "/")
+      .replace(/\\u0026/gi, "&")
+      .replace(/\\n|\\r|\\t/g, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     if (!snippets.includes(cleaned)) {
       snippets.push(cleaned);
     }
   }
+
+  // 2. Structured key/value attribute objects: match the attribute name token first, then grab surrounding 350 chars
+  const attrKeyRegex =
+    /"(?:name|label|title|key|header|heading|attribute_code)"\s*:\s*"(?:material|materials|fabric|composition|care\s*&\s*materials|details|specifications|dimensions|measurements|size\s*&\s*fit)"/gi;
+  while ((match = attrKeyRegex.exec(boundedHtml)) !== null && snippets.length < 45) {
+    const rawSlice = boundedHtml.slice(Math.max(0, match.index - 20), Math.min(boundedHtml.length, match.index + 380));
+    const cleaned = rawSlice
+      .replace(/\\n|\\r|\\t/g, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!snippets.includes(cleaned)) {
+      snippets.push(cleaned);
+    }
+  }
+
+  // 3. Explicit fabric composition percentages anywhere in HTML/scripts (e.g. "100% Cotton", "80% Recycled Polyester")
+  const pctRegex =
+    /\b\d{1,3}\s*%\s*(?:organic\s+|recycled\s+|post-consumer\s+)?(?:cotton|polyester|nylon|polyamide|wool|merino|cashmere|silk|linen|flax|viscose|rayon|modal|lyocell|tencel|elastane|spandex|lycra|leather|calfskin|lambskin|suede|acrylic|polyurethane|down|feather|hemp|jute|raffia|canvas|fleece|rubber|eva|silicone|polyethylene|stainless\s+steel)\b/gi;
+  while ((match = pctRegex.exec(boundedHtml)) !== null && snippets.length < 60) {
+    const start = Math.max(0, match.index - 40);
+    const end = Math.min(boundedHtml.length, match.index + match[0].length + 80);
+    const rawSlice = boundedHtml.slice(start, end).replace(/[<>{}"\n\r\\]/g, " ").replace(/\s+/g, " ").trim();
+    if (rawSlice.length >= 6 && !snippets.includes(`Composition: ${rawSlice}`)) {
+      snippets.push(`Composition: ${rawSlice}`);
+    }
+  }
+
   return snippets.join("\n");
 };
 
@@ -310,13 +389,16 @@ async function startServer() {
     const isUrl = trimmedInput.startsWith("http://") || trimmedInput.startsWith("https://");
 
     let pageContext = "";
+    let aggregatedMaterialHints = "";
+    let aggregatedDimensionHints = "";
+
     if (isUrl) {
-      const isBotBlockText = (sample: string): boolean =>
-        /Access to this page has been denied|Access Denied|Target URL returned error 403|requiring CAPTCHA|confirm you are\s+a human|Press & Hold|Attention Required|Just a moment|Security Challenge|Pardon Our Interruption|Verify you are human|Robot or human/i.test(
+      const isHardBotBlock = (sample: string): boolean =>
+        /Access to this page has been denied|Access Denied|requiring CAPTCHA|confirm you are\s+a human|Press & Hold|Attention Required|Just a moment|Security Challenge|Pardon Our Interruption|Verify you are human|Robot or human/i.test(
           sample
         );
 
-      const fetchViaJinaReader = async (): Promise<string> => {
+      const fetchViaJinaReader = async (): Promise<{ content: string; matHints: string; dimHints: string }> => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 7500);
         try {
@@ -328,37 +410,39 @@ async function startServer() {
               "Accept": "text/plain",
             },
           });
-          if (!readerRes.ok) return "";
+          if (!readerRes.ok) return { content: "", matHints: "", dimHints: "" };
           const text = await readerRes.text();
-          if (!text || text.length < 150 || isBotBlockText(text.slice(0, 800))) {
-            return "";
+          if (!text || text.length < 150) {
+            return { content: "", matHints: "", dimHints: "" };
           }
-          // Strip markdown link URLs [label](url) -> label and remove trailing cookie preference banners
+
+          // Strip Jina's "Warning: ..." metadata lines, markdown link URLs [label](url) -> label, and trailing cookie preference banners
           const cleaned = text
+            .replace(/^Warning:.*$/gm, "")
             .replace(/##\s*Privacy Preference Center[\s\S]*$/i, "")
             .replace(/\[([^\]]*)\]\([^)]+\)/g, "$1")
             .replace(/\n{3,}/g, "\n\n")
             .trim();
 
-          if (cleaned.length < 150 || isBotBlockText(cleaned.slice(0, 600))) {
-            return "";
+          // Reject if it's a short block page or contains CAPTCHA challenge text without real product content
+          if (cleaned.length < 250 || (cleaned.length < 1200 && isHardBotBlock(cleaned))) {
+            return { content: "", matHints: "", dimHints: "" };
           }
 
-          // Extract all Material & Dimension lines from the FULL untruncated page first so specs past char 12,000 are never lost
-          const specHighlights = extractSpecHighlights(cleaned);
+          // Scan the FULL untruncated page text for Material and Dimension candidates so specs past char 14,000 are never lost
+          const matHints = extractMaterialCandidates(cleaned);
+          const dimHints = extractDimensionCandidates(cleaned);
           const bodySlice = cleaned.slice(0, 14000);
-          return specHighlights
-            ? `=== HIGHLIGHTED SPECS, MATERIALS & DIMENSIONS FROM PAGE ===\n${specHighlights}\n\n=== FULL PAGE TEXT ===\n${bodySlice}`
-            : bodySlice;
+          return { content: bodySlice, matHints, dimHints };
         } catch {
-          return "";
+          return { content: "", matHints: "", dimHints: "" };
         } finally {
           clearTimeout(timeout);
         }
       };
 
-      const fetchShopifyJson = async (): Promise<string> => {
-        if (!/\/products\/[^/?#]+/i.test(trimmedInput)) return "";
+      const fetchShopifyJson = async (): Promise<{ content: string; matHints: string; dimHints: string }> => {
+        if (!/\/products\/[^/?#]+/i.test(trimmedInput)) return { content: "", matHints: "", dimHints: "" };
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3500);
         try {
@@ -371,10 +455,10 @@ async function startServer() {
               "Accept": "application/json",
             },
           });
-          if (!r.ok) return "";
+          if (!r.ok) return { content: "", matHints: "", dimHints: "" };
           const data = await r.json();
           const p = data?.product;
-          if (!p) return "";
+          if (!p) return { content: "", matHints: "", dimHints: "" };
           const bodyText = (p.body_html || "")
             .replace(/<[^>]+>/g, "\n")
             .replace(/&nbsp;/g, " ")
@@ -385,7 +469,7 @@ async function startServer() {
           const variantPrices = Array.isArray(p.variants)
             ? p.variants.slice(0, 5).map((v: any) => `${v.title}: $${v.price} (SKU: ${v.sku || "N/A"})`).join(", ")
             : "";
-          return [
+          const content = [
             p.title ? `Shopify Product Title: ${p.title}` : "",
             p.vendor ? `Brand: ${p.vendor}` : "",
             p.product_type ? `Type: ${p.product_type}` : "",
@@ -395,14 +479,19 @@ async function startServer() {
           ]
             .filter(Boolean)
             .join("\n");
+          return {
+            content,
+            matHints: extractMaterialCandidates(content),
+            dimHints: extractDimensionCandidates(content),
+          };
         } catch {
-          return "";
+          return { content: "", matHints: "", dimHints: "" };
         } finally {
           clearTimeout(timeout);
         }
       };
 
-      const fetchDirectMetadata = async (): Promise<string> => {
+      const fetchDirectMetadata = async (): Promise<{ content: string; matHints: string; dimHints: string }> => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 4000);
         try {
@@ -414,14 +503,14 @@ async function startServer() {
               "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
             },
           });
-          if (!htmlRes.ok) return "";
+          if (!htmlRes.ok) return { content: "", matHints: "", dimHints: "" };
           const html = await htmlRes.text();
           const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
           const titleText = titleMatch ? titleMatch[1].trim() : "";
 
           // Detect Cloudflare / PerimeterX / Akamai bot challenge pages
-          if (isBotBlockText(titleText) || isBotBlockText(html.slice(0, 1200))) {
-            return "";
+          if (isHardBotBlock(titleText) || (html.length < 5000 && isHardBotBlock(html.slice(0, 1500)))) {
+            return { content: "", matHints: "", dimHints: "" };
           }
 
           const ogTitleMatch = html.match(/<meta\s+(?:property|name)=["']og:title["']\s+content=["']([^"']+)["']/i) ||
@@ -433,7 +522,7 @@ async function startServer() {
           const ldJsonMatches = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
           const ldJsonText = ldJsonMatches.map((m) => m[1].trim()).join("\n").slice(0, 5000);
 
-          // Extract embedded JSON specs (Next.js, Demandware, etc.) and visible HTML body text so materials & dimensions in tabs/accordions are captured
+          // Extract embedded JSON specs (Next.js, Demandware, etc.) and visible HTML body text
           const embeddedJsonSpecs = extractEmbeddedSpecJson(html);
           const cleanedBodyText = html
             .replace(/<script[\s\S]*?<\/script>/gi, "\n")
@@ -451,10 +540,22 @@ async function startServer() {
             .replace(/\n\s*\n+/g, "\n")
             .trim();
 
-          const bodySpecHighlights = extractSpecHighlights(cleanedBodyText);
+          const matHints = [
+            embeddedJsonSpecs,
+            extractMaterialCandidates(ldJsonText),
+            extractMaterialCandidates(cleanedBodyText),
+          ]
+            .filter(Boolean)
+            .join("\n");
+          const dimHints = [
+            extractDimensionCandidates(ldJsonText),
+            extractDimensionCandidates(cleanedBodyText),
+          ]
+            .filter(Boolean)
+            .join("\n");
 
-          if (!ldJsonText && !ogDescMatch && !descMatch && !bodySpecHighlights) {
-            return "";
+          if (!ldJsonText && !ogDescMatch && !descMatch && !matHints && !dimHints) {
+            return { content: "", matHints: "", dimHints: "" };
           }
 
           const parts = [
@@ -463,30 +564,43 @@ async function startServer() {
             ogDescMatch ? `Product Description: ${ogDescMatch[1].trim()}` : "",
             descMatch ? `Description: ${descMatch[1].trim()}` : "",
             ldJsonText ? `Structured Data: ${ldJsonText}` : "",
-            embeddedJsonSpecs ? `Embedded Product Specs JSON:\n${embeddedJsonSpecs}` : "",
-            bodySpecHighlights ? `Highlighted Specs (Material / Dimensions) from HTML:\n${bodySpecHighlights}` : "",
             cleanedBodyText ? `HTML Body Text Excerpt:\n${cleanedBodyText.slice(0, 6000)}` : "",
           ].filter(Boolean);
 
-          return parts.join("\n\n");
+          return { content: parts.join("\n\n"), matHints, dimHints };
         } catch {
-          return "";
+          return { content: "", matHints: "", dimHints: "" };
         } finally {
           clearTimeout(timeout);
         }
       };
 
       try {
-        // Run direct HTML metadata, Jina Reader, and Shopify JSON check in parallel
-        const [directContent, readerContent, shopifyContent] = await Promise.all([
+        const [directRes, readerRes, shopifyRes] = await Promise.all([
           fetchDirectMetadata(),
           fetchViaJinaReader(),
           fetchShopifyJson(),
         ]);
+
+        aggregatedMaterialHints = [shopifyRes.matHints, directRes.matHints, readerRes.matHints]
+          .filter(Boolean)
+          .join("\n")
+          .slice(0, 5000);
+        aggregatedDimensionHints = [shopifyRes.dimHints, directRes.dimHints, readerRes.dimHints]
+          .filter(Boolean)
+          .join("\n")
+          .slice(0, 3500);
+
         const sections = [
-          shopifyContent ? `[Shopify Product Data]\n${shopifyContent}` : "",
-          directContent ? `[Direct HTML Metadata & Specs]\n${directContent}` : "",
-          readerContent ? `[Rendered Page Content]\n${readerContent}` : "",
+          aggregatedMaterialHints
+            ? `=== EXTRACTED MATERIAL & FABRIC CANDIDATES FROM PAGE (HIGH PRIORITY) ===\n${aggregatedMaterialHints}`
+            : "",
+          aggregatedDimensionHints
+            ? `=== EXTRACTED DIMENSION & MEASUREMENT CANDIDATES FROM PAGE (HIGH PRIORITY) ===\n${aggregatedDimensionHints}`
+            : "",
+          shopifyRes.content ? `[Shopify Product Data]\n${shopifyRes.content}` : "",
+          directRes.content ? `[Direct HTML Metadata]\n${directRes.content}` : "",
+          readerRes.content ? `[Rendered Page Content]\n${readerRes.content}` : "",
         ].filter(Boolean);
 
         if (sections.length > 0) {
@@ -518,34 +632,36 @@ Return the result as a valid JSON object formatted inside a \`\`\`json ... \`\`\
 CRITICAL REQUIREMENTS:
 - PRIMARY PRODUCT ONLY: Extract ONLY the main product matching the URL / Page Title / main H1 heading. Ignore any "Add the essentials", "Related Products", "Complete the Look", or upsell items on the page.
 - Do not use special characters or trademark symbols like "®", "™", or similar in any text fields.
-- MATERIAL (VERY IMPORTANT): Search the entire page content, highlighted specs, bullet points, and product description carefully for any material, fabric, composition, shell, lining, hardware, or construction details (e.g., cotton, polyester, leather, faux leather, manmade materials, nylon, fleece, suede, rubber, stainless steel, polyethylene, etc.). Translate and list up to two main materials in Japanese (for example, "Manmade materials" -> "合成素材", "Faux leather" -> "合成皮革", "100% post-consumer recycled materials / fleece" -> "リサイクル素材（フリース）"). When analyzing shoes, specifically find the main material for the upper part and the bottom (sole) of the shoe. Only set "material" to "N/A" if there is truly zero mention of material or fabric anywhere.
-- DIMENSIONS (VERY IMPORTANT): Search the entire page content, highlighted specs, bullet points, and description carefully for any measurements or dimensions (such as width, height, depth, length, diameter, exterior/interior dimensions, strap/handle drop, belt width, sole thickness, etc.). Always express dimensions ONLY in cm (centimeters) in Japanese — do NOT include inch values alongside cm. If the source dimensions are in inches or mm, convert them to cm (1 inch = 2.54 cm, 10 mm = 1 cm). All numbers must be rounded up to whole numbers (no decimals, e.g., 10.2 cm becomes 11 cm, 25.4 cm becomes 26 cm). Always include "約" in front of the dimensions in the "dimensions" field (e.g., 約W11 x H21 cm or 約65 x 41 x 40 cm). Only set "dimensions" to "N/A" if no numerical measurements exist for this product.
+- MATERIAL (HIGHEST PRIORITY): Carefully check the "EXTRACTED MATERIAL & FABRIC CANDIDATES FROM PAGE" section as well as the product title, bullet points, and description. Look for ANY fabric percentages (e.g. "100% Cotton", "80% Polyester"), leather types ("Faux leather", "Pebbled leather", "Suede"), synthetic/manmade materials ("Manmade materials", "Recycled materials", "Polyethylene", "EVA", "Rubber"), metals ("Stainless steel", "Brass", "Silver"), or garment/shoe parts (upper/outsole, shell/lining). Translate and list up to two main materials in Japanese (e.g. "Faux leather / Manmade materials" -> "合成皮革、合成素材", "100% Cotton" -> "コットン100%"). Even if the material is only mentioned inside the prose description (e.g. "Crafted from faux leather..." or "Made of 100% recycled polyester") or in the product name (e.g. "Fleece", "Leather", "Denim", "Canvas"), you MUST extract and translate that material into Japanese! Never output "N/A" if any material, fabric, or construction clue exists on the page.
+- DIMENSIONS (HIGHEST PRIORITY): Carefully check the "EXTRACTED DIMENSION & MEASUREMENT CANDIDATES FROM PAGE" section and product details for any numerical measurements (width, height, depth, length, diameter, exterior/interior dimensions, strap/handle drop, belt width, sole height, etc.). Always express dimensions ONLY in cm (centimeters) in Japanese — do NOT include inch values alongside cm. Convert inches (1 in = 2.54 cm) or mm (10 mm = 1 cm) to cm and round ALL numbers up to whole numbers (e.g., 10.2 cm -> 11 cm, 25.4 cm -> 26 cm). Always prefix with "約" (e.g., 約W65 x D41 x H40 cm). Set "dimensions" to "N/A" ONLY if no numerical measurements exist for this product.
 - Output valid JSON only. Do not add markdown introductory or concluding text outside the code block.`;
 
     let response: any = null;
     let lastError: any = null;
+    let usedUrlContext = false;
 
     // Helper to generate content with fallback
-    const generateWithTools = async (toolsConfig?: any[]) => {
+    const generateWithTools = async (toolsConfig?: any[], customPrompt?: string) => {
       return await callGeminiWithFallback({
-        contents: prompt,
+        contents: customPrompt || prompt,
         config: toolsConfig ? { tools: toolsConfig } : undefined,
       });
     };
 
-    // For URLs: always try urlContext first (which combines any extracted pageContext in the prompt with Google's URL index)
-    if (isUrl) {
+    // If we have rich extracted pageContext (>= 500 chars), run direct prompt first so the model focuses 100% on the scraped page & material candidates
+    if (!isUrl || (pageContext && pageContext.length >= 500)) {
       try {
-        response = await generateWithTools([{ urlContext: {} }]);
+        response = await generateWithTools();
       } catch (err: any) {
         lastError = err;
       }
     }
 
-    // Next, if non-URL or if urlContext failed, run direct prompt with extracted pageContext
-    if (!response && (!isUrl || pageContext)) {
+    // If URL and pageContext was empty/blocked (or direct prompt failed), use urlContext
+    if (!response && isUrl) {
       try {
-        response = await generateWithTools();
+        usedUrlContext = true;
+        response = await generateWithTools([{ urlContext: {} }]);
       } catch (err: any) {
         lastError = err;
       }
@@ -593,11 +709,127 @@ CRITICAL REQUIREMENTS:
       if (!data.details || typeof data.details !== "object") {
         data.details = {};
       }
-      const rawMaterial = typeof data.details.material === "string" ? data.details.material.trim() : "";
-      data.details.material =
-        !rawMaterial || /^(?:n\/?a|none|null|undefined|-|不明|なし|該当なし|情報なし)$/i.test(rawMaterial)
-          ? "N/A"
-          : rawMaterial;
+
+      const isMissingField = (val: any): boolean => {
+        if (!val || typeof val !== "string") return true;
+        const t = val.trim();
+        return !t || /^(?:n\/?a|none|null|undefined|-|約?-|約?n\/?a|不明|なし|該当なし|情報なし|記載なし|サイズ表記なし)$/i.test(t);
+      };
+
+      const inferMaterialFromText = (sourceText: string): string => {
+        if (!sourceText) return "";
+        const found: string[] = [];
+        const addMat = (jp: string) => {
+          if (jp && !found.includes(jp) && found.length < 2) found.push(jp);
+        };
+
+        // 1. Check explicit percentage compositions first (e.g. "100% Cotton" -> "コットン100%")
+        const pctMap: Array<[RegExp, string]> = [
+          [/\b(\d{1,3})\s*%\s*(?:organic\s+)?cotton\b/i, "コットン"],
+          [/\b(\d{1,3})\s*%\s*recycled\s+polyester\b/i, "リサイクルポリエステル"],
+          [/\b(\d{1,3})\s*%\s*polyester\b/i, "ポリエステル"],
+          [/\b(\d{1,3})\s*%\s*(?:nylon|polyamide)\b/i, "ナイロン"],
+          [/\b(\d{1,3})\s*%\s*(?:merino\s+)?wool\b/i, "ウール"],
+          [/\b(\d{1,3})\s*%\s*cashmere\b/i, "カシミヤ"],
+          [/\b(\d{1,3})\s*%\s*silk\b/i, "シルク"],
+          [/\b(\d{1,3})\s*%\s*(?:linen|flax)\b/i, "リネン（麻）"],
+          [/\b(\d{1,3})\s*%\s*(?:viscose|rayon|modal|lyocell|tencel)\b/i, "レーヨン"],
+          [/\b(\d{1,3})\s*%\s*(?:spandex|elastane|lycra)\b/i, "ポリウレタン（スパンデックス）"],
+          [/\b(\d{1,3})\s*%\s*acrylic\b/i, "アクリル"],
+          [/\b(\d{1,3})\s*%\s*leather\b/i, "レザー（本革）"],
+          [/\b(\d{1,3})\s*%\s*(?:post-consumer\s+)?recycled\s+materials?\b/i, "リサイクル素材"],
+        ];
+        for (const [rx, jpName] of pctMap) {
+          const m = sourceText.match(rx);
+          if (m) addMat(`${jpName}${m[1]}%`);
+        }
+
+        // 2. Check material keywords in priority order
+        const keywordMap: Array<[RegExp, string]> = [
+          [/\b(?:faux\s+leather|vegan\s+leather|synthetic\s+leather|pu\s+leather|polyurethane\s+leather)\b|合皮|合成皮革|フェイクレザー/i, "合成皮革"],
+          [/\b(?:full[- ]grain\s+leather|top[- ]grain\s+leather|pebbled\s+leather|saffiano\s+leather|nappa\s+leather|patent\s+leather|genuine\s+leather|calfskin|lambskin|goatskin|cowhide|leather)\b|天然皮革|本革|牛革|羊革|レザー/i, "レザー（本革）"],
+          [/\b(?:suede|nubuck)\b|スエード|ヌバック/i, "スエード"],
+          [/\b(?:primaloft|fleece|sherpa)\b|フリース/i, "フリース（ポリエステル）"],
+          [/\b(?:recycled\s+polyester)\b|リサイクルポリエステル/i, "リサイクルポリエステル"],
+          [/\b(?:organic\s+cotton|cotton|denim|chambray|corduroy|french\s+terry)\b|コットン|綿|デニム/i, "コットン"],
+          [/\b(?:polyester)\b|ポリエステル/i, "ポリエステル"],
+          [/\b(?:nylon|polyamide|cordura|ripstop)\b|ナイロン/i, "ナイロン"],
+          [/\b(?:canvas)\b|キャンバス/i, "キャンバス"],
+          [/\b(?:merino\s+wool|wool)\b|ウール|羊毛/i, "ウール"],
+          [/\b(?:cashmere)\b|カシミヤ/i, "カシミヤ"],
+          [/\b(?:silk|satin)\b|シルク|サテン/i, "シルク"],
+          [/\b(?:linen|flax|hemp|jute|raffia|straw)\b|リネン|麻|ラフィア/i, "リネン・天然繊維"],
+          [/\b(?:viscose|rayon|modal|lyocell|tencel)\b|レーヨン|モダール|テンセル/i, "レーヨン"],
+          [/\b(?:spandex|elastane|lycra)\b|スパンデックス|ポリウレタン/i, "ポリウレタン"],
+          [/\b(?:down|feather)\b|ダウン|フェザー/i, "ダウン"],
+          [/\b(?:rubber|vibram|vulcanized)\b|ラバー|ゴム底|ゴム/i, "ラバー（ゴム）"],
+          [/\b(?:eva|tpu|tpr|phylon)\b|EVA樹脂|合成底/i, "EVA・合成樹脂"],
+          [/\b(?:stainless\s+steel|steel)\b|ステンレス/i, "ステンレススチール"],
+          [/\b(?:sterling\s+silver|925\s+silver)\b|スターリングシルバー|シルバー925/i, "スターリングシルバー"],
+          [/\b(?:brass|bronze|copper)\b|真鍮|ブラス|銅/i, "真鍮（ブラス）"],
+          [/\b(?:aluminum|aluminium|titanium|alloy|metal)\b|アルミニウム|チタン|合金|金属/i, "メタル（金属）"],
+          [/\b(?:polyethylene|rotomolded)\b|ポリエチレン/i, "ポリエチレン"],
+          [/\b(?:polycarbonate|tritan|acrylic|abs|resin)\b|ポリカーボネート|アクリル|樹脂/i, "合成樹脂"],
+          [/\b(?:silicone)\b|シリコン/i, "シリコン"],
+          [/\b(?:ceramic|porcelain|stoneware)\b|セラミック|陶器|磁器/i, "セラミック（陶磁器）"],
+          [/\b(?:glass|crystal)\b|ガラス|クリスタル/i, "ガラス・クリスタル"],
+          [/\b(?:wood|bamboo|cork)\b|木製|バンブー|コルク/i, "ウッド（木製）"],
+          [/\b(?:manmade\s+materials?|man-made\s+materials?|synthetic\s+materials?|synthetic)\b|合成素材|人工素材|合成繊維/i, "合成素材"],
+          [/\b(?:recycled\s+materials?)\b|リサイクル素材|再生素材/i, "リサイクル素材"],
+        ];
+
+        for (const [rx, jpName] of keywordMap) {
+          if (found.length >= 2) break;
+          if (rx.test(sourceText) && !found.some((f) => f.startsWith(jpName.slice(0, 3)))) {
+            addMat(jpName);
+          }
+        }
+
+        return found.join("、");
+      };
+
+      let matMissing = isMissingField(data.details.material);
+      let dimMissing = isMissingField(data.details.dimensions);
+
+      // 1. Fast 0ms deterministic material inference from extracted page candidates & description if LLM left material as N/A
+      if (matMissing) {
+        const inferredMat = inferMaterialFromText(
+          [aggregatedMaterialHints, data.englishName, data.details.description].filter(Boolean).join("\n")
+        );
+        if (inferredMat) {
+          data.details.material = inferredMat;
+          matMissing = false;
+        }
+      }
+
+      // 2. If Material is STILL missing on a URL and we haven't queried urlContext yet, run a single urlContext lookup
+      if (matMissing && isUrl && !usedUrlContext) {
+        try {
+          const recoveryPrompt = `Find the exact Material (in Japanese, up to 2 main materials) and Dimensions (in cm in Japanese, rounded up to whole numbers with 約) for this product URL: ${trimmedInput} (${data.englishName || ""}).
+Return strictly JSON:
+{
+  "material": "Material in Japanese (or N/A if absent)",
+  "dimensions": "Dimensions in cm in Japanese (or N/A if absent)"
+}`;
+          const urlRecoveryRes = await generateWithTools([{ urlContext: {} }], recoveryPrompt);
+          const recoveryText = urlRecoveryRes?.text || urlRecoveryRes?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (recoveryText) {
+            const recovered = extractJson(recoveryText);
+            if (matMissing && !isMissingField(recovered?.material)) {
+              data.details.material = recovered.material.trim();
+              matMissing = false;
+            }
+            if (dimMissing && !isMissingField(recovered?.dimensions)) {
+              data.details.dimensions = recovered.dimensions.trim();
+              dimMissing = false;
+            }
+          }
+        } catch {
+          // Ignore recovery error
+        }
+      }
+
+      data.details.material = isMissingField(data.details.material) ? "N/A" : data.details.material.trim();
       data.details.dimensions = roundUpDimensions(data.details.dimensions);
 
       return res.json({ data });
