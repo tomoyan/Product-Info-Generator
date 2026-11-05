@@ -408,7 +408,7 @@ export default function App() {
   const convertedPriceJpy = productInfo ? Math.round(manualUsdPrice * productInfo.exchangeRate) : 0;
 
   return (
-    <div className="min-h-screen flex flex-col font-sans relative overflow-hidden transition-colors duration-500">
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col font-sans relative overflow-x-hidden transition-colors duration-500">
       {/* Animated Background Orbs */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className={`absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full blur-[120px] animate-orb transition-colors duration-1000 ${theme === 'dark' ? 'bg-blue-600/15' : 'bg-blue-400/8'}`} />
@@ -417,41 +417,37 @@ export default function App() {
       </div>
 
       {/* Header */}
-      <header className="glass-panel sticky top-0 z-20 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-              <Package size={20} strokeWidth={2.5} />
+      <header className="glass-panel sticky top-0 z-20 px-6 py-2.5 shrink-0">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-8">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-lg flex items-center justify-center text-white shadow-md shadow-blue-500/20">
+              <Package size={17} strokeWidth={2.5} />
             </div>
-            <h1 className={`text-lg font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r ${theme === 'dark' ? 'from-white to-white/60' : 'from-slate-900 to-slate-500'}`}>Analyzer</h1>
+            <h1 className={`text-base font-bold tracking-tight whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r ${theme === 'dark' ? 'from-white to-white/60' : 'from-slate-900 to-slate-500'}`}>Analyzer</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={toggleTheme}
-              className={`p-2.5 rounded-xl border transition-all ${
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              className={`p-2 rounded-lg border transition-all cursor-pointer ${
                 theme === 'dark' 
                   ? 'bg-white/[0.05] border-white/[0.08] text-white/60 hover:text-white hover:bg-white/[0.1]' 
                   : 'bg-black/[0.03] border-black/[0.05] text-slate-500 hover:text-slate-900 hover:bg-black/[0.05]'
               }`}
             >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-            <div className={`px-3 py-1 rounded-full border hidden sm:block ${
-              theme === 'dark' ? 'bg-white/[0.05] border-white/[0.08]' : 'bg-black/[0.03] border-black/[0.05]'
-            }`}>
-              <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>v2.0 • AI Premium</span>
-            </div>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-10 flex flex-col gap-8 relative z-10">
+      <main className="flex-1 min-h-0 max-w-6xl w-full mx-auto px-6 py-4 flex flex-col gap-4 relative z-10">
         {/* Input Section */}
-        <section className="w-full">
-          <form onSubmit={handleAction} className="relative flex gap-3">
+        <section className="w-full shrink-0">
+          <form onSubmit={handleAction} className="relative flex gap-2.5">
             <div className="relative flex-1 group">
-              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white/20 group-focus-within:text-blue-500 transition-colors">
-                <Search size={20} />
+              <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none text-white/20 group-focus-within:text-blue-500 transition-colors">
+                <Search size={18} />
               </div>
               <input
                 type="text"
@@ -459,7 +455,7 @@ export default function App() {
                 value={inputValue}
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => setInputValue(e.target.value)}
-                className={`w-full pl-12 pr-4 py-4 rounded-2xl text-sm input-focus shadow-2xl backdrop-blur-md transition-all border ${
+                className={`w-full pl-10 pr-4 py-3 rounded-xl text-sm input-focus shadow-lg backdrop-blur-md transition-all border ${
                   theme === 'dark' 
                     ? 'bg-white/[0.03] border-white/[0.08] text-white placeholder:text-white/20 hover:bg-white/[0.05]' 
                     : 'bg-white/60 border-slate-200/50 text-slate-900 placeholder:text-slate-400 hover:bg-white/80'
@@ -470,16 +466,16 @@ export default function App() {
             <button
               type="submit"
               disabled={loading || !inputValue.trim()}
-              className={`px-8 rounded-2xl text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-2 active:scale-95 border ${
+              className={`px-6 py-3 rounded-xl text-sm font-bold whitespace-nowrap shrink-0 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-2 active:scale-95 border cursor-pointer ${
                 theme === 'dark'
                   ? 'bg-white text-black hover:bg-white/90 shadow-[0_0_20px_rgba(255,255,255,0.1)] border-transparent'
-                  : 'bg-neutral-900 text-white hover:bg-neutral-800 shadow-xl shadow-neutral-900/10 border-transparent'
+                  : 'bg-neutral-900 text-white hover:bg-neutral-800 shadow-lg shadow-neutral-900/10 border-transparent'
               }`}
             >
               {loading ? (
                 <>
-                  <Loader2 className="animate-spin" size={18} />
-                  <span>{Math.round(progress)}%</span>
+                  <Loader2 className="animate-spin" size={16} />
+                  <span className="tabular-nums">{Math.round(progress)}%</span>
                 </>
               ) : (
                 "Analyze"
@@ -489,7 +485,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className={`px-5 rounded-2xl text-xs font-bold transition-all backdrop-blur-md border ${
+                className={`px-4 py-3 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-all backdrop-blur-md border ${
                   theme === 'dark'
                     ? 'bg-white/[0.05] border-white/[0.08] text-white/60 hover:bg-white/[0.1]'
                     : 'bg-black/[0.03] border-black/[0.05] text-neutral-500 hover:bg-black/[0.05]'
@@ -504,10 +500,10 @@ export default function App() {
           <AnimatePresence>
             {loading && (
               <motion.div
-                initial={{ opacity: 0, y: -10 }}
+                initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="mt-4 px-1"
+                exit={{ opacity: 0, y: -6 }}
+                className="mt-2.5 px-1"
               >
                 <div className={`h-1.5 w-full rounded-full overflow-hidden border ${
                   theme === 'dark' ? 'bg-white/[0.05] border-white/[0.05]' : 'bg-black/[0.03] border-black/[0.03]'
@@ -519,11 +515,11 @@ export default function App() {
                     transition={{ type: "spring", bounce: 0, duration: 0.5 }}
                   />
                 </div>
-                <div className="flex justify-between items-center mt-2.5">
+                <div className="flex justify-between items-center mt-1.5">
                   <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
                     {progress > 80 ? "Finalizing..." : progressMessage}
                   </p>
-                  <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">
+                  <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest tabular-nums">
                     {Math.round(progress)}%
                   </p>
                 </div>
@@ -538,28 +534,25 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              className={`p-5 border rounded-2xl text-xs font-medium flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 backdrop-blur-md ${
+              className={`p-4 border rounded-xl text-xs font-medium flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 backdrop-blur-md shrink-0 ${
                 theme === 'dark' 
                   ? 'bg-rose-500/10 border-rose-500/20 text-rose-200' 
                   : 'bg-rose-50 border-rose-100 text-rose-700'
               }`}
             >
-              <div className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse mt-1 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
-                <div className="space-y-1">
-                  <p className="font-semibold leading-relaxed">{error}</p>
-                  {inputValue.startsWith("http") && (
-                    <p className={`text-[11px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>
-                      Tip: If the website blocks automated scrapers, you can paste the product brand and model name directly.
-                    </p>
-                  )}
-                </div>
+              <div className="space-y-1">
+                <p className="font-semibold leading-relaxed">{error}</p>
+                {inputValue.startsWith("http") && (
+                  <p className={`text-[11px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>
+                    Tip: If the website blocks automated scrapers, you can paste the product brand and model name directly.
+                  </p>
+                )}
               </div>
               <button
                 type="button"
                 onClick={() => startAnalysis(inputValue)}
                 disabled={loading || !inputValue.trim()}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 border cursor-pointer ${
+                className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-all active:scale-95 border cursor-pointer ${
                   theme === 'dark'
                     ? 'bg-white/10 hover:bg-white/20 text-white border-white/10'
                     : 'bg-rose-600 hover:bg-rose-700 text-white border-transparent'
@@ -572,115 +565,118 @@ export default function App() {
 
           {productInfo && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+              className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch"
             >
               {/* Product Header & Details (Left) */}
-              <div className="lg:col-span-7 space-y-8">
-                <div className="compact-card p-8 relative overflow-hidden">
+              <div className="lg:col-span-7 flex flex-col min-h-0">
+                <div className="compact-card p-5 lg:p-6 flex flex-col justify-between h-full relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500" />
                   
-                  <div className="flex items-start justify-between mb-8">
-                    <div className="space-y-3">
-                      <div 
-                        onClick={() => copyToClipboard("japaneseName", productInfo.japaneseName)}
-                        className="group cursor-pointer relative"
-                      >
-                        <h3 className={`text-2xl font-bold tracking-tight leading-tight transition-all group-hover:opacity-70 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                          {productInfo.japaneseName}
-                        </h3>
-                        {copiedStates["japaneseName"] && (
-                          <motion.div 
-                            initial={{ opacity: 0, y: 5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="absolute -top-6 left-0 px-2 py-0.5 rounded bg-blue-600 text-[9px] font-bold text-white uppercase tracking-widest"
-                          >
-                            Copied
-                          </motion.div>
-                        )}
-                      </div>
-                      
-                      <div 
-                        onClick={() => copyToClipboard("englishName", productInfo.englishName)}
-                        className="group cursor-pointer relative"
-                      >
-                        <h4 className={`text-sm font-medium tracking-wide transition-all group-hover:opacity-70 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>
-                          {productInfo.englishName}
-                        </h4>
-                        {copiedStates["englishName"] && (
-                          <motion.div 
-                            initial={{ opacity: 0, y: 5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="absolute -top-6 left-0 px-2 py-0.5 rounded bg-blue-600 text-[9px] font-bold text-white uppercase tracking-widest"
-                          >
-                            Copied
-                          </motion.div>
-                        )}
-                      </div>
-                    </div>
-                    {inputValue.startsWith("http") && (
-                      <a
-                        href={inputValue}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`p-3 rounded-xl transition-all border ${
-                          theme === 'dark'
-                            ? 'text-white/30 hover:text-white hover:bg-white/10 border-white/5'
-                            : 'text-slate-400 hover:text-slate-900 hover:bg-black/[0.03] border-black/[0.05]'
-                        }`}
-                      >
-                        <ExternalLink size={20} />
-                      </a>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-5">
-                    {[
-                      { label: "Color", value: productInfo.details.color?.trim() || "N/A", icon: Palette, key: "color" },
-                      { label: "Product ID", value: productInfo.details.id?.trim() || "N/A", icon: Tag, key: "id" },
-                      { label: "Material", value: formatMaterial(productInfo.details.material), icon: Layers, key: "material" },
-                      { label: "Dimensions", value: roundUpDimensions(productInfo.details.dimensions), icon: Ruler, key: "dimensions" },
-                    ].map((item) => item.value && (
-                      <button
-                        key={item.key}
-                        onClick={() => copyToClipboard(item.key, item.value!)}
-                        className={`p-4 text-left rounded-2xl border transition-all group relative overflow-hidden ${
-                          copiedStates[item.key] 
-                            ? "bg-blue-500/20 border-blue-500/30 ring-1 ring-blue-500/30" 
-                            : theme === 'dark'
-                              ? "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.08] hover:border-white/[0.15]"
-                              : "bg-black/[0.02] border-black/[0.05] hover:bg-black/[0.04] hover:border-black/[0.1]"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <item.icon size={14} className={copiedStates[item.key] ? "text-blue-500" : theme === 'dark' ? "text-white/20" : "text-neutral-300"} />
-                            <span className={`text-[10px] font-bold uppercase tracking-[0.15em] ${copiedStates[item.key] ? "text-blue-500" : theme === 'dark' ? "text-white/30" : "text-neutral-400"}`}>
-                              {item.label}
-                            </span>
-                          </div>
-                          {copiedStates[item.key] && (
-                            <motion.span 
-                              initial={{ opacity: 0, x: 5 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              className="text-[9px] font-black text-blue-500 uppercase tracking-tighter"
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1.5 min-w-0">
+                        <div 
+                          onClick={() => copyToClipboard("japaneseName", productInfo.japaneseName)}
+                          className="group cursor-pointer relative"
+                        >
+                          <h3 className={`text-xl lg:text-2xl font-bold tracking-tight leading-snug transition-all group-hover:opacity-70 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                            {productInfo.japaneseName}
+                          </h3>
+                          {copiedStates["japaneseName"] && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="absolute -top-5 left-0 px-2 py-0.5 rounded bg-blue-600 text-[9px] font-bold text-white uppercase tracking-widest"
                             >
                               Copied
-                            </motion.span>
+                            </motion.div>
                           )}
                         </div>
-                        <p className={`text-xs font-semibold truncate ${copiedStates[item.key] ? (theme === 'dark' ? "text-white" : "text-blue-900") : (theme === 'dark' ? "text-white/80" : "text-slate-900")}`}>
-                          {item.value}
-                        </p>
-                      </button>
-                    ))}
+                        
+                        <div 
+                          onClick={() => copyToClipboard("englishName", productInfo.englishName)}
+                          className="group cursor-pointer relative"
+                        >
+                          <h4 className={`text-xs lg:text-sm font-medium tracking-wide transition-all group-hover:opacity-70 truncate ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>
+                            {productInfo.englishName}
+                          </h4>
+                          {copiedStates["englishName"] && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="absolute -top-5 left-0 px-2 py-0.5 rounded bg-blue-600 text-[9px] font-bold text-white uppercase tracking-widest"
+                            >
+                              Copied
+                            </motion.div>
+                          )}
+                        </div>
+                      </div>
+                      {inputValue.startsWith("http") && (
+                        <a
+                          href={inputValue}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`p-2.5 rounded-xl shrink-0 transition-all border ${
+                            theme === 'dark'
+                              ? 'text-white/30 hover:text-white hover:bg-white/10 border-white/5'
+                              : 'text-slate-400 hover:text-slate-900 hover:bg-black/[0.03] border-black/[0.05]'
+                          }`}
+                        >
+                          <ExternalLink size={18} />
+                        </a>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { label: "Color", value: productInfo.details.color?.trim() || "N/A", icon: Palette, key: "color" },
+                        { label: "Product ID", value: productInfo.details.id?.trim() || "N/A", icon: Tag, key: "id" },
+                        { label: "Material", value: formatMaterial(productInfo.details.material), icon: Layers, key: "material" },
+                        { label: "Dimensions", value: roundUpDimensions(productInfo.details.dimensions), icon: Ruler, key: "dimensions" },
+                      ].map((item) => item.value && (
+                        <button
+                          key={item.key}
+                          onClick={() => copyToClipboard(item.key, item.value!)}
+                          title={item.value}
+                          className={`p-3.5 text-left rounded-xl border transition-all group relative overflow-hidden cursor-pointer ${
+                            copiedStates[item.key] 
+                              ? "bg-blue-500/20 border-blue-500/30 ring-1 ring-blue-500/30" 
+                              : theme === 'dark'
+                                ? "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.08] hover:border-white/[0.15]"
+                                : "bg-black/[0.02] border-black/[0.05] hover:bg-black/[0.04] hover:border-black/[0.1]"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <item.icon size={13} className={copiedStates[item.key] ? "text-blue-500" : theme === 'dark' ? "text-white/20" : "text-neutral-400"} />
+                              <span className={`text-[10px] font-bold uppercase tracking-[0.15em] ${copiedStates[item.key] ? "text-blue-500" : theme === 'dark' ? "text-white/30" : "text-neutral-400"}`}>
+                                {item.label}
+                              </span>
+                            </div>
+                            {copiedStates[item.key] && (
+                              <motion.span 
+                                initial={{ opacity: 0, x: 5 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="text-[9px] font-black text-blue-500 uppercase tracking-tighter"
+                              >
+                                Copied
+                              </motion.span>
+                            )}
+                          </div>
+                          <p className={`text-xs font-semibold line-clamp-2 leading-snug ${copiedStates[item.key] ? (theme === 'dark' ? "text-white" : "text-blue-900") : (theme === 'dark' ? "text-white/80" : "text-slate-900")}`}>
+                            {item.value}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {productInfo.details.description && (
                     <button
                       onClick={() => copyToClipboard("description", productInfo.details.description!)}
-                      className={`mt-6 p-5 w-full text-left rounded-2xl relative group transition-all overflow-hidden border ${
+                      className={`mt-4 p-4 w-full text-left rounded-xl relative group transition-all overflow-hidden border cursor-pointer ${
                         copiedStates["description"]
                           ? "bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-500/20"
                           : theme === 'dark'
@@ -688,9 +684,9 @@ export default function App() {
                             : "bg-[#080F20] border-transparent text-white hover:bg-black"
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
-                          <FileText size={14} className={copiedStates["description"] ? "text-blue-200" : theme === 'dark' ? "text-white/20" : "text-white/40"} />
+                          <FileText size={13} className={copiedStates["description"] ? "text-blue-200" : theme === 'dark' ? "text-white/20" : "text-white/40"} />
                           <span className={`text-[10px] font-bold uppercase tracking-[0.15em] ${copiedStates["description"] ? "text-blue-100" : theme === 'dark' ? "text-white/30" : "text-white/40"}`}>
                             Summary
                           </span>
@@ -705,7 +701,7 @@ export default function App() {
                           </motion.span>
                         )}
                       </div>
-                      <p className={`text-[12px] leading-relaxed italic ${copiedStates["description"] ? "text-white" : theme === 'dark' ? "text-white/60" : "text-white/80"}`}>
+                      <p className={`text-xs leading-relaxed ${copiedStates["description"] ? "text-white" : theme === 'dark' ? "text-white/60" : "text-white/80"}`}>
                         {productInfo.details.description}
                       </p>
                     </button>
@@ -714,31 +710,31 @@ export default function App() {
               </div>
 
               {/* Pricing & Controls (Right) */}
-              <div className="lg:col-span-5 space-y-8">
-                <div className="compact-card p-8 flex flex-col h-full relative overflow-hidden">
+              <div className="lg:col-span-5 flex flex-col min-h-0">
+                <div className="compact-card p-5 lg:p-6 flex flex-col justify-between h-full relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500" />
                   
-                  <div className="space-y-8 flex-1">
+                  <div className="space-y-3.5">
                     {/* USD Input */}
-                    <div className="space-y-4">
+                    <div className="space-y-1">
                       <div className="flex items-center justify-between">
                         <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Price (USD)</span>
                         <button
                           onClick={() => copyToClipboard("usd", manualUsdPrice)}
-                          className={`text-[10px] font-bold transition-colors uppercase tracking-widest ${theme === 'dark' ? 'text-white/30 hover:text-blue-500' : 'text-slate-400 hover:text-blue-600'}`}
+                          className={`text-[10px] font-bold transition-colors uppercase tracking-widest cursor-pointer ${theme === 'dark' ? 'text-white/30 hover:text-blue-500' : 'text-slate-400 hover:text-blue-600'}`}
                         >
                           {copiedStates["usd"] ? "COPIED" : "COPY"}
                         </button>
                       </div>
                       <div className="relative">
-                        <span className={`absolute left-0 top-1/2 -translate-y-1/2 text-2xl font-bold ${theme === 'dark' ? 'text-white/20' : 'text-neutral-300'}`}>$</span>
+                        <span className={`absolute left-0 top-1/2 -translate-y-1/2 text-xl font-bold ${theme === 'dark' ? 'text-white/20' : 'text-neutral-300'}`}>$</span>
                         <input
                           type="number"
                           step="0.01"
                           value={manualUsdPrice}
                           onFocus={(e) => e.target.select()}
                           onChange={(e) => setManualUsdPrice(parseFloat(e.target.value) || 0)}
-                          className={`w-full pl-6 py-2 text-3xl font-bold bg-transparent focus:outline-none border-b transition-colors ${
+                          className={`w-full pl-5 py-1 text-2xl font-bold tabular-nums bg-transparent focus:outline-none border-b transition-colors ${
                             theme === 'dark' 
                               ? 'border-white/[0.05] focus:border-blue-500/50 text-white' 
                               : 'border-black/[0.05] focus:border-blue-500/50 text-slate-900'
@@ -748,14 +744,14 @@ export default function App() {
                     </div>
 
                     {/* JPY Result */}
-                    <div className={`p-6 rounded-3xl border space-y-6 backdrop-blur-md ${
+                    <div className={`p-4 rounded-2xl border space-y-3 backdrop-blur-md ${
                       theme === 'dark' ? 'bg-white/[0.02] border-white/[0.05]' : 'bg-black/[0.02] border-black/[0.05]'
                     }`}>
                       <div className="flex items-center justify-between">
-                        <div className="space-y-1">
+                        <div className="space-y-0.5">
                           <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Retail Price (JPY)</span>
-                          <div className="flex items-baseline gap-3">
-                            <span className={`text-4xl font-bold tracking-tight transition-all duration-500 ${
+                          <div className="flex items-baseline gap-2.5">
+                            <span className={`text-3xl font-bold tracking-tight tabular-nums transition-all duration-500 ${
                               discount === 20 ? (theme === 'dark' ? "text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.3)]" : "text-cyan-600") :
                               discount === 10 ? (theme === 'dark' ? "text-blue-400 drop-shadow-[0_0_15px_rgba(96,165,250,0.3)]" : "text-blue-600") :
                               discount === -10 ? (theme === 'dark' ? "text-orange-400 drop-shadow-[0_0_15px_rgba(251,146,60,0.3)]" : "text-orange-600") :
@@ -765,7 +761,7 @@ export default function App() {
                               ¥{retailPriceJpy.toLocaleString()}
                             </span>
                             {discount !== 0 && (
-                              <span className={`text-xs font-bold line-through ${theme === 'dark' ? 'text-white/10' : 'text-slate-300'}`}>
+                              <span className={`text-xs font-bold line-through tabular-nums ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>
                                 ¥{calculateRetailPrice(manualUsdPrice, productInfo!.exchangeRate, 0).toLocaleString()}
                               </span>
                             )}
@@ -773,24 +769,24 @@ export default function App() {
                         </div>
                         <button
                           onClick={() => copyToClipboard("jpy", retailPriceJpy)}
-                          className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 hover:scale-110 active:scale-95 transition-all"
+                          className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all cursor-pointer shrink-0"
                         >
-                          {copiedStates["jpy"] ? <Check size={22} /> : <JapaneseYen size={22} />}
+                          {copiedStates["jpy"] ? <Check size={18} /> : <JapaneseYen size={18} />}
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-5 gap-1 pt-2">
+                      <div className="grid grid-cols-5 gap-1">
                         {[
-                          { label: "20% OFF", val: 20, color: theme === 'dark' ? "hover:bg-cyan-500/10 hover:text-cyan-400" : "hover:bg-cyan-50 hover:text-cyan-600", active: "bg-cyan-600 text-white shadow-lg shadow-cyan-600/20" },
-                          { label: "10% OFF", val: 10, color: theme === 'dark' ? "hover:bg-blue-500/10 hover:text-blue-400" : "hover:bg-blue-50 hover:text-blue-600", active: "bg-blue-600 text-white shadow-lg shadow-blue-600/20" },
-                          { label: "Normal", val: 0, color: theme === 'dark' ? "hover:bg-white/10" : "hover:bg-black/10", active: theme === 'dark' ? "bg-white text-black shadow-lg shadow-white/10" : "bg-slate-900 text-white shadow-lg shadow-slate-900/10" },
-                          { label: "10% UP", val: -10, color: theme === 'dark' ? "hover:bg-orange-500/10 hover:text-orange-400" : "hover:bg-orange-50 hover:text-orange-600", active: "bg-orange-500 text-white shadow-orange-500/20" },
-                          { label: "20% UP", val: -20, color: theme === 'dark' ? "hover:bg-rose-500/10 hover:text-rose-400" : "hover:bg-rose-50 hover:text-rose-600", active: "bg-rose-500 text-white shadow-lg shadow-rose-500/20" },
+                          { label: "20% OFF", val: 20, color: theme === 'dark' ? "hover:bg-cyan-500/10 hover:text-cyan-400" : "hover:bg-cyan-50 hover:text-cyan-600", active: "bg-cyan-600 text-white shadow-md shadow-cyan-600/20" },
+                          { label: "10% OFF", val: 10, color: theme === 'dark' ? "hover:bg-blue-500/10 hover:text-blue-400" : "hover:bg-blue-50 hover:text-blue-600", active: "bg-blue-600 text-white shadow-md shadow-blue-600/20" },
+                          { label: "Normal", val: 0, color: theme === 'dark' ? "hover:bg-white/10" : "hover:bg-black/10", active: theme === 'dark' ? "bg-white text-black shadow-md shadow-white/10" : "bg-slate-900 text-white shadow-md shadow-slate-900/10" },
+                          { label: "10% UP", val: -10, color: theme === 'dark' ? "hover:bg-orange-500/10 hover:text-orange-400" : "hover:bg-orange-50 hover:text-orange-600", active: "bg-orange-500 text-white shadow-md shadow-orange-500/20" },
+                          { label: "20% UP", val: -20, color: theme === 'dark' ? "hover:bg-rose-500/10 hover:text-rose-400" : "hover:bg-rose-50 hover:text-rose-600", active: "bg-rose-500 text-white shadow-md shadow-rose-500/20" },
                         ].map((btn) => (
                           <button
                             key={btn.label}
                             onClick={() => setDiscount(btn.val)}
-                            className={`py-2 rounded-lg text-[8px] font-black uppercase tracking-tighter transition-all border border-transparent whitespace-nowrap flex items-center justify-center ${
+                            className={`py-1.5 rounded-lg text-[8px] font-black uppercase tracking-tighter transition-all border border-transparent whitespace-nowrap flex items-center justify-center cursor-pointer ${
                               discount === btn.val ? btn.active : `${theme === 'dark' ? 'bg-white/[0.03] border-white/[0.05] text-white/40' : 'bg-black/[0.03] border-black/[0.05] text-slate-400'} ${btn.color}`
                             }`}
                           >
@@ -801,16 +797,16 @@ export default function App() {
                     </div>
 
                     {/* Conversion Price (USD to JPY) */}
-                    <div className={`p-5 rounded-2xl border backdrop-blur-md transition-all ${
+                    <div className={`p-3.5 rounded-2xl border backdrop-blur-md transition-all ${
                       theme === 'dark' ? 'bg-white/[0.02] border-white/[0.05]' : 'bg-black/[0.02] border-black/[0.05]'
                     }`}>
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-1">
                         <span className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
                           Conversion Price (JPY)
                         </span>
                         <button
                           onClick={() => copyToClipboard("conversion", convertedPriceJpy)}
-                          className={`text-[10px] font-bold transition-colors uppercase tracking-widest ${
+                          className={`text-[10px] font-bold transition-colors uppercase tracking-widest cursor-pointer ${
                             copiedStates["conversion"]
                               ? "text-blue-500 font-bold"
                               : theme === 'dark' ? 'text-white/30 hover:text-blue-500' : 'text-slate-400 hover:text-blue-600'
@@ -825,23 +821,23 @@ export default function App() {
                           className="cursor-pointer group flex items-baseline gap-2"
                           title="Click to copy conversion price"
                         >
-                          <span className={`text-2xl font-bold tracking-tight transition-opacity group-hover:opacity-80 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                          <span className={`text-xl font-bold tracking-tight tabular-nums transition-opacity group-hover:opacity-80 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
                             ¥{convertedPriceJpy.toLocaleString()}
                           </span>
                         </div>
-                        <span className={`text-[11px] font-medium tracking-wide ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
+                        <span className={`text-[11px] font-medium tracking-wide tabular-nums ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
                           ${manualUsdPrice} × ¥{productInfo.exchangeRate}
                         </span>
                       </div>
 
-                      <div className={`mt-3 pt-3 border-t transition-all ${
+                      <div className={`mt-2.5 pt-2.5 border-t transition-all ${
                         theme === 'dark' ? 'border-white/[0.05]' : 'border-black/[0.05]'
                       }`}>
                         <div className="flex items-center justify-between gap-2">
                           <button
                             type="button"
                             onClick={() => setShowReferenceNote(prev => !prev)}
-                            className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer ${
+                            className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                               theme === 'dark' ? 'text-white/40 hover:text-white/80' : 'text-slate-400 hover:text-slate-700'
                             }`}
                             title={showReferenceNote ? "Hide reference note text" : "Show reference note text"}
@@ -853,7 +849,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => copyToClipboard("conversion_note", `※上記参考価格は現地参考価格を1$＝${productInfo.exchangeRate}円で換算したものです。`)}
-                            className={`text-[10px] font-bold transition-colors uppercase tracking-widest flex items-center gap-1 cursor-pointer ${
+                            className={`text-[10px] font-bold transition-colors uppercase tracking-widest flex items-center gap-1 cursor-pointer whitespace-nowrap ${
                               copiedStates["conversion_note"]
                                 ? "text-blue-500 font-bold"
                                 : theme === 'dark' ? 'text-white/40 hover:text-blue-500' : 'text-slate-400 hover:text-blue-600'
@@ -877,14 +873,14 @@ export default function App() {
                         {showReferenceNote && (
                           <div
                             onClick={() => copyToClipboard("conversion_note", `※上記参考価格は現地参考価格を1$＝${productInfo.exchangeRate}円で換算したものです。`)}
-                            className={`mt-2.5 p-2.5 rounded-xl cursor-pointer group transition-all select-none border ${
+                            className={`mt-2 px-2.5 py-2 rounded-xl cursor-pointer group transition-all select-none border ${
                               theme === 'dark'
                                 ? 'bg-white/[0.02] border-white/[0.05] hover:border-white/10'
                                 : 'bg-black/[0.02] border-black/[0.05] hover:border-black/10'
                             }`}
                             title="Click on text to copy"
                           >
-                            <p className={`text-xs leading-relaxed transition-colors ${
+                            <p className={`text-[11px] leading-snug transition-colors ${
                               copiedStates["conversion_note"]
                                 ? "text-blue-500 font-medium"
                                 : theme === 'dark'
@@ -899,25 +895,23 @@ export default function App() {
                     </div>
                   </div>
                   
-                  <div className={`mt-8 pt-5 border-t flex flex-col gap-3 text-[10px] font-bold uppercase tracking-[0.2em] ${theme === 'dark' ? 'border-white/[0.05] text-white/20' : 'border-black/[0.05] text-slate-400'}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span>Market Rate</span>
-                        <button 
-                          onClick={refreshExchangeRate}
-                          disabled={loading}
-                          className="hover:text-blue-500 transition-colors disabled:opacity-50 p-1"
-                          title="Refresh exchange rate"
-                        >
-                          <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-                        </button>
-                      </div>
-                      <span className={theme === 'dark' ? 'text-white/40' : 'text-neutral-600'}>¥{productInfo.exchangeRate} / USD</span>
+                  <div className={`mt-4 pt-3 border-t flex items-center justify-between gap-4 text-[10px] font-bold uppercase tracking-[0.15em] ${theme === 'dark' ? 'border-white/[0.05] text-white/30' : 'border-black/[0.05] text-slate-400'}`}>
+                    <div className="flex items-center gap-1.5 whitespace-nowrap">
+                      <span>Rate:</span>
+                      <span className={`tabular-nums ${theme === 'dark' ? 'text-white/60' : 'text-neutral-700'}`}>¥{productInfo.exchangeRate}/USD</span>
+                      <button 
+                        onClick={refreshExchangeRate}
+                        disabled={loading}
+                        className="hover:text-blue-500 transition-colors disabled:opacity-50 p-0.5 cursor-pointer"
+                        title="Refresh exchange rate"
+                      >
+                        <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
+                      </button>
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <span>Shipping Cost</span>
-                      <span className={theme === 'dark' ? 'text-white/40' : 'text-neutral-600'}>¥{SHIPPING_COST.toLocaleString()}</span>
+                    <div className="flex items-center gap-1.5 whitespace-nowrap">
+                      <span>Shipping:</span>
+                      <span className={`tabular-nums ${theme === 'dark' ? 'text-white/60' : 'text-neutral-700'}`}>¥{SHIPPING_COST.toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
@@ -929,12 +923,12 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex-1 flex flex-col items-center justify-center py-20"
+              className="flex-1 flex flex-col items-center justify-center py-8"
             >
-              <div className={`w-20 h-20 border rounded-3xl flex items-center justify-center mb-6 shadow-xl backdrop-blur-md transition-all ${
+              <div className={`w-16 h-16 border rounded-2xl flex items-center justify-center mb-4 shadow-xl backdrop-blur-md transition-all ${
                 theme === 'dark' ? 'border-blue-500/20 bg-blue-950/25' : 'border-blue-200 bg-blue-50/50'
               }`}>
-                <Search size={32} className={theme === 'dark' ? 'text-blue-400/70' : 'text-blue-600/60'} />
+                <Search size={26} className={theme === 'dark' ? 'text-blue-400/70' : 'text-blue-600/60'} />
               </div>
               <p className={`text-[10px] font-bold uppercase tracking-[0.3em] transition-colors ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Awaiting Input</p>
             </motion.div>
@@ -942,11 +936,11 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      <footer className={`max-w-5xl w-full mx-auto px-6 py-10 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] relative z-10 ${
+      <footer className={`max-w-6xl w-full mx-auto px-6 py-2.5 shrink-0 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] relative z-10 ${
         theme === 'dark' ? 'text-white/20' : 'text-neutral-400'
       }`}>
-        <p>© 2026 Analyzer • Premium Edition</p>
-        <div className="flex gap-8">
+        <p>© 2026 Analyzer</p>
+        <div className="flex gap-6">
           <a href="#" className={`transition-colors ${theme === 'dark' ? 'hover:text-white' : 'hover:text-neutral-900'}`}>Privacy</a>
           <a href="#" className={`transition-colors ${theme === 'dark' ? 'hover:text-white' : 'hover:text-neutral-900'}`}>Terms</a>
         </div>
