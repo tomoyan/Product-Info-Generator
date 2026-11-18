@@ -632,6 +632,7 @@ Return the result as a valid JSON object formatted inside a \`\`\`json ... \`\`\
 CRITICAL REQUIREMENTS:
 - PRIMARY PRODUCT ONLY: Extract ONLY the main product matching the URL / Page Title / main H1 heading. Ignore any "Add the essentials", "Related Products", "Complete the Look", or upsell items on the page.
 - Do not use special characters or trademark symbols like "®", "™", or similar in any text fields.
+- Do NOT use "・" (Japanese middle dot / nakaguro) in "japaneseName" or translated Japanese text to separate words — always use a space instead (e.g., "メンズ オール フォー フリーダム ロングスリーブ ティー" instead of "メンズ オール・フォー・フリーダム ロングスリーブ ティー").
 - MATERIAL (HIGHEST PRIORITY): Carefully check the "EXTRACTED MATERIAL & FABRIC CANDIDATES FROM PAGE" section as well as the product title, bullet points, and description. Look for ANY fabric percentages (e.g. "100% Cotton", "80% Polyester"), leather types ("Faux leather", "Pebbled leather", "Suede"), synthetic/manmade materials ("Manmade materials", "Recycled materials", "Polyethylene", "EVA", "Rubber"), metals ("Stainless steel", "Brass", "Silver"), or garment/shoe parts (upper/outsole, shell/lining). Translate and list up to two main materials in Japanese (e.g. "Faux leather / Manmade materials" -> "合成皮革、合成素材", "100% Cotton" -> "コットン100%"). Even if the material is only mentioned inside the prose description (e.g. "Crafted from faux leather..." or "Made of 100% recycled polyester") or in the product name (e.g. "Fleece", "Leather", "Denim", "Canvas"), you MUST extract and translate that material into Japanese! Never output "N/A" if any material, fabric, or construction clue exists on the page.
 - DIMENSIONS (HIGHEST PRIORITY): Carefully check the "EXTRACTED DIMENSION & MEASUREMENT CANDIDATES FROM PAGE" section and product details for any numerical measurements (width, height, depth, length, diameter, exterior/interior dimensions, strap/handle drop, belt width, sole height, etc.). Always express dimensions ONLY in cm (centimeters) in Japanese — do NOT include inch values alongside cm. Convert inches (1 in = 2.54 cm) or mm (10 mm = 1 cm) to cm and round ALL numbers up to whole numbers (e.g., 10.2 cm -> 11 cm, 25.4 cm -> 26 cm). Always prefix with "約" (e.g., 約W65 x D41 x H40 cm). Set "dimensions" to "N/A" ONLY if no numerical measurements exist for this product.
 - Output valid JSON only. Do not add markdown introductory or concluding text outside the code block.`;
@@ -710,6 +711,21 @@ CRITICAL REQUIREMENTS:
         data.details = {};
       }
 
+      const replaceMiddleDotsWithSpace = (val?: string): string => {
+        if (!val || typeof val !== "string") return "";
+        return val.replace(/\s*[・･]\s*/g, " ").replace(/[ ]{2,}/g, " ").trim();
+      };
+
+      if (typeof data.japaneseName === "string") {
+        data.japaneseName = replaceMiddleDotsWithSpace(data.japaneseName);
+      }
+      if (typeof data.details.color === "string") {
+        data.details.color = replaceMiddleDotsWithSpace(data.details.color);
+      }
+      if (typeof data.details.description === "string") {
+        data.details.description = replaceMiddleDotsWithSpace(data.details.description);
+      }
+
       const isMissingField = (val: any): boolean => {
         if (!val || typeof val !== "string") return true;
         const t = val.trim();
@@ -758,12 +774,12 @@ CRITICAL REQUIREMENTS:
           [/\b(?:merino\s+wool|wool)\b|ウール|羊毛/i, "ウール"],
           [/\b(?:cashmere)\b|カシミヤ/i, "カシミヤ"],
           [/\b(?:silk|satin)\b|シルク|サテン/i, "シルク"],
-          [/\b(?:linen|flax|hemp|jute|raffia|straw)\b|リネン|麻|ラフィア/i, "リネン・天然繊維"],
+          [/\b(?:linen|flax|hemp|jute|raffia|straw)\b|リネン|麻|ラフィア/i, "リネン、天然繊維"],
           [/\b(?:viscose|rayon|modal|lyocell|tencel)\b|レーヨン|モダール|テンセル/i, "レーヨン"],
           [/\b(?:spandex|elastane|lycra)\b|スパンデックス|ポリウレタン/i, "ポリウレタン"],
           [/\b(?:down|feather)\b|ダウン|フェザー/i, "ダウン"],
           [/\b(?:rubber|vibram|vulcanized)\b|ラバー|ゴム底|ゴム/i, "ラバー（ゴム）"],
-          [/\b(?:eva|tpu|tpr|phylon)\b|EVA樹脂|合成底/i, "EVA・合成樹脂"],
+          [/\b(?:eva|tpu|tpr|phylon)\b|EVA樹脂|合成底/i, "EVA、合成樹脂"],
           [/\b(?:stainless\s+steel|steel)\b|ステンレス/i, "ステンレススチール"],
           [/\b(?:sterling\s+silver|925\s+silver)\b|スターリングシルバー|シルバー925/i, "スターリングシルバー"],
           [/\b(?:brass|bronze|copper)\b|真鍮|ブラス|銅/i, "真鍮（ブラス）"],
@@ -772,7 +788,7 @@ CRITICAL REQUIREMENTS:
           [/\b(?:polycarbonate|tritan|acrylic|abs|resin)\b|ポリカーボネート|アクリル|樹脂/i, "合成樹脂"],
           [/\b(?:silicone)\b|シリコン/i, "シリコン"],
           [/\b(?:ceramic|porcelain|stoneware)\b|セラミック|陶器|磁器/i, "セラミック（陶磁器）"],
-          [/\b(?:glass|crystal)\b|ガラス|クリスタル/i, "ガラス・クリスタル"],
+          [/\b(?:glass|crystal)\b|ガラス|クリスタル/i, "ガラス、クリスタル"],
           [/\b(?:wood|bamboo|cork)\b|木製|バンブー|コルク/i, "ウッド（木製）"],
           [/\b(?:manmade\s+materials?|man-made\s+materials?|synthetic\s+materials?|synthetic)\b|合成素材|人工素材|合成繊維/i, "合成素材"],
           [/\b(?:recycled\s+materials?)\b|リサイクル素材|再生素材/i, "リサイクル素材"],
@@ -829,7 +845,9 @@ Return strictly JSON:
         }
       }
 
-      data.details.material = isMissingField(data.details.material) ? "N/A" : data.details.material.trim();
+      data.details.material = isMissingField(data.details.material)
+        ? "N/A"
+        : replaceMiddleDotsWithSpace(data.details.material);
       data.details.dimensions = roundUpDimensions(data.details.dimensions);
 
       return res.json({ data });
@@ -851,6 +869,7 @@ Return strictly JSON:
         contents: `Translate the following product information into professional Japanese.
 If it's a short product name, provide the Japanese name in "translatedName".
 If it's a longer description, provide a simple, professional 1-2 sentence summary in Japanese in "translatedSummary".
+Do NOT use "・" (Japanese middle dot) to separate words — always use a space instead.
 
 Input: ${text}
 
@@ -877,9 +896,10 @@ Return the result as a JSON object:
       }
 
       const data = extractJson(responseText);
+      const cleanDots = (s?: string) => (s ? s.replace(/\s*[・･]\s*/g, " ").replace(/[ ]{2,}/g, " ").trim() : "");
       return res.json({
-        translatedName: data.translatedName,
-        translatedSummary: data.translatedSummary,
+        translatedName: cleanDots(data.translatedName),
+        translatedSummary: cleanDots(data.translatedSummary),
       });
     } catch (err: any) {
       console.error("Translation API error:", err);

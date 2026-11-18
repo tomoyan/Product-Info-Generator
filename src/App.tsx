@@ -87,9 +87,14 @@ const roundUpDimensions = (raw?: string): string => {
   return text;
 };
 
+const formatJapaneseText = (raw?: string): string => {
+  if (!raw) return "";
+  return raw.replace(/\s*[・･]\s*/g, " ").replace(/[ ]{2,}/g, " ").trim();
+};
+
 const formatMaterial = (raw?: string): string => {
   if (!raw) return "N/A";
-  const text = raw.trim();
+  const text = formatJapaneseText(raw);
   if (!text || /^(?:n\/?a|none|null|undefined|-|不明|なし|該当なし|情報なし)$/i.test(text)) {
     return "N/A";
   }
@@ -347,6 +352,15 @@ export default function App() {
           // Ensure dimensions are rounded up to whole numbers in cm with 約
           if (productData?.details?.dimensions) {
             productData.details.dimensions = roundUpDimensions(productData.details.dimensions);
+          }
+          if (productData?.japaneseName) {
+            productData.japaneseName = formatJapaneseText(productData.japaneseName);
+          }
+          if (productData?.details?.color) {
+            productData.details.color = formatJapaneseText(productData.details.color);
+          }
+          if (productData?.details?.description) {
+            productData.details.description = formatJapaneseText(productData.details.description);
           }
           
           // Update cache
